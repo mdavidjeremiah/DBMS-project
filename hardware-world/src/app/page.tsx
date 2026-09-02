@@ -1,69 +1,156 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import {
+  DollarSign,
+  Package,
+  ShoppingCart,
+  Users,
+  Plus
+} from "lucide-react"
+import { StatCard } from "@/components/shared/StatCard"
+import { DataTable, Column } from "@/components/shared/DataTable"
+import { StatusBadge } from "@/components/shared/StatusBadge"
+import { Modal } from "@/components/shared/Modal"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+// --- Mock Data ---
+interface Order {
+  id: string
+  supplier: string
+  status: "Pending" | "Approved" | "Received" | "Cancelled"
+  total: string
+}
+
+const mockOrders: Order[] = [
+  { id: "PO-1001", supplier: "Acme Hardware", status: "Pending", total: "$1,250.00" },
+  { id: "PO-1002", supplier: "Global Tools", status: "Approved", total: "$3,400.00" },
+  { id: "PO-1003", supplier: "Industrial Supply Co", status: "Received", total: "$890.00" },
+  { id: "PO-1004", supplier: "Fasteners Inc", status: "Cancelled", total: "$420.00" },
+  { id: "PO-1005", supplier: "Acme Hardware", status: "Pending", total: "$2,100.00" },
+]
+
+interface Task {
+  id: string
+  title: string
+  assignee: string
+  role: "Cashier" | "Procurement Officer" | "Accountant" | "HR Staff" | "Branch Manager" | "Admin"
+}
+
+const mockTasks: Task[] = [
+  { id: "1", title: "Review PO-1001", assignee: "Alice", role: "Procurement Officer" },
+  { id: "2", title: "Run Month-end Payroll", assignee: "Bob", role: "HR Staff" },
+  { id: "3", title: "Approve Timesheets", assignee: "Charlie", role: "Branch Manager" },
+  { id: "4", title: "Reconcile Register 2", assignee: "Diana", role: "Accountant" },
+]
+
+// --- Columns ---
+const orderColumns: Column<Order>[] = [
+  { header: "Order ID", accessorKey: "id", sortable: true },
+  { header: "Supplier", accessorKey: "supplier", sortable: true },
+  { 
+    header: "Status", 
+    accessorKey: "status", 
+    sortable: true,
+    cell: (item) => <StatusBadge status={item.status} />
+  },
+  { header: "Total", accessorKey: "total" },
+]
+
+const taskColumns: Column<Task>[] = [
+  { header: "Task", accessorKey: "title" },
+  { 
+    header: "Assignee Role", 
+    accessorKey: "role",
+    cell: (item) => (
+      <div className="flex flex-col gap-1">
+        <span className="text-sm">{item.assignee}</span>
+        <StatusBadge role={item.role} className="w-fit text-[10px] h-4 py-0" />
+      </div>
+    )
+  }
+]
+
+export default function Dashboard() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Dashboard Overview</h1>
+        
+        <Modal
+          title="Create New Order"
+          description="Create a new purchase order manually."
+          trigger={<Button><Plus className="mr-2 h-4 w-4" /> Create New Order</Button>}
+          confirmText="Create Order"
+        >
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="supplier">Supplier</Label>
+              <Input id="supplier" placeholder="e.g. Acme Hardware" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="total">Estimated Total</Label>
+              <Input id="total" type="number" placeholder="0.00" />
+            </div>
+          </div>
+        </Modal>
+      </div>
+
+      {/* Stat Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="Sales Today"
+          value="$12,450"
+          icon={<DollarSign className="h-4 w-4" />}
+          trend="up"
+          trendValue="+12%"
+          description="vs last week"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+        <StatCard
+          title="Low Stock Items"
+          value="24"
+          icon={<Package className="h-4 w-4" />}
+          trend="down"
+          trendValue="-2"
+          description="needs reorder"
+        />
+        <StatCard
+          title="Pending POs"
+          value="12"
+          icon={<ShoppingCart className="h-4 w-4" />}
+          trend="neutral"
+          description="awaiting approval"
+        />
+        <StatCard
+          title="Overdue Payroll"
+          value="0"
+          icon={<Users className="h-4 w-4" />}
+          trend="neutral"
+          description="all caught up"
+        />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-[1fr_300px] lg:grid-cols-[1fr_400px]">
+        {/* Overview Panel */}
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-semibold tracking-tight">Recent Purchase Orders</h2>
+          <DataTable 
+            data={mockOrders} 
+            columns={orderColumns} 
+            searchKey="supplier"
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* My Tasks Panel */}
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-semibold tracking-tight">My Tasks</h2>
+          <DataTable
+            data={mockTasks}
+            columns={taskColumns}
+          />
         </div>
-      </main>
+      </div>
     </div>
-  );
+  )
 }
