@@ -45,7 +45,7 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-muted/40">
-      <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
+      <div className="flex h-14 items-center border-b px-4 lg:h-15 lg:px-6">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
