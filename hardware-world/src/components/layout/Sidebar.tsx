@@ -47,14 +47,16 @@ export function Sidebar() {
     <div className="flex h-full w-64 flex-col border-r bg-muted/40">
       <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="w-full justify-between p-2 font-semibold text-lg">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-primary" />
-                <span className="truncate">Hardware World</span>
-              </div>
-              <ChevronDown className="h-4 w-4 opacity-50" />
-            </Button>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" className="w-full justify-between p-2 font-semibold text-lg" />
+            }
+          >
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              <span className="truncate">Hardware World</span>
+            </div>
+            <ChevronDown className="h-4 w-4 opacity-50" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
