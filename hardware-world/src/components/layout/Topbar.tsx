@@ -28,15 +28,17 @@ export function Topbar() {
   return (
     <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
       <Sheet>
-        <SheetTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0 md:hidden"
-          >
+        <SheetTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0 md:hidden"
+            />
+          }
+        >
             <Menu className="h-5 w-5" />
             <span className="sr-only">Toggle navigation menu</span>
-          </Button>
         </SheetTrigger>
         <SheetContent side="left" className="flex flex-col p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
@@ -67,14 +69,16 @@ export function Topbar() {
       </Button>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="icon" className="rounded-full">
+        <DropdownMenuTrigger
+          render={
+            <Button variant="secondary" size="icon" className="rounded-full" />
+          }
+        >
             <Avatar>
               <AvatarImage src="https://github.com/shadcn.png" />
               <AvatarFallback>HW</AvatarFallback>
             </Avatar>
             <span className="sr-only">Toggle user menu</span>
-          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>My Account</DropdownMenuLabel>
