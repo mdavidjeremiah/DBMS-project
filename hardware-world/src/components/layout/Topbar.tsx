@@ -1,7 +1,7 @@
 "use client"
 
 import { useTheme } from "next-themes"
-import { Search, Sun, Moon, Menu, Bell, ShieldCheck, PhoneCall } from "lucide-react"
+import { Search, Sun, Moon, Menu, Bell, ShieldCheck, PhoneCall, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -16,14 +16,66 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "./Sidebar"
 import * as React from "react"
+import { createClient } from "@/utils/supabase/client"
 
 export function Topbar() {
   const { setTheme, theme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
+  const [user, setUser] = React.useState<any>(null)
+  const [userRole, setUserRole] = React.useState<string>("")
+  const [loading, setLoading] = React.useState(true)
+  const supabase = createClient()
 
   React.useEffect(() => {
     setMounted(true)
+    fetchUser()
   }, [])
+
+  const fetchUser = async () => {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      setUser(authUser)
+      
+      if (authUser) {
+        // Fetch user's employee role from database
+        const { data: employee } = await supabase
+          .from("EMPLOYEE")
+          .select("RoleType")
+          .eq("AuthUserID", authUser.id)
+          .single()
+        
+        if (employee) {
+          setUserRole(employee.RoleType)
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching user:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    window.location.href = "/auth/sign-in"
+  }
+
+  const getInitials = (email?: string) => {
+    if (!email) return "HW"
+    return email.split("@")[0].slice(0, 2).toUpperCase()
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    const colors: Record<string, string> = {
+      "Cashier": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+      "Procurement Officer": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "Accountant": "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+      "HR Staff": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+      "Branch Manager": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+      "Admin": "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400",
+    }
+    return colors[role] || "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400"
+  }
 
   return (
     <div className="flex flex-col w-full z-20">
@@ -111,27 +163,45 @@ export function Topbar() {
             >
               <div className="relative">
                 <Avatar className="h-8 w-8 border border-orange-500/40">
-                  <AvatarImage src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" />
-                  <AvatarFallback className="bg-orange-600 text-white font-bold text-xs">HW</AvatarFallback>
+                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email}`} />
+                  <AvatarFallback className="bg-orange-600 text-white font-bold text-xs">
+                    {getInitials(user?.email)}
+                  </AvatarFallback>
                 </Avatar>
                 <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
               </div>
               <div className="hidden lg:flex flex-col text-left pr-1">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">Jonathan A.</span>
-                <span className="text-[10px] text-orange-600 font-semibold dark:text-orange-400">Branch Manager</span>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  {user?.email?.split("@")[0] || "Loading..."}
+                </span>
+                {userRole && (
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${getRoleBadgeColor(userRole)}`}>
+                    {userRole}
+                  </span>
+                )}
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 rounded-xl shadow-xl">
               <DropdownMenuLabel className="font-bold">
-                <p className="text-sm text-slate-900 dark:text-white">Jonathan Akena</p>
-                <p className="text-xs text-slate-500 font-normal">jonathan@hardwareworld.co.ug</p>
+                <p className="text-sm text-slate-900 dark:text-white">{user?.email || "User"}</p>
+                {userRole && (
+                  <p className={`text-xs font-semibold mt-1 px-2 py-1 rounded-full w-fit ${getRoleBadgeColor(userRole)}`}>
+                    {userRole}
+                  </p>
+                )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="cursor-pointer font-medium">My Profile & Permissions</DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer font-medium">Branch Settings</DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer font-medium">Support & Knowledgebase</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600 font-semibold cursor-pointer">Log out</DropdownMenuItem>
+              <DropdownMenuItem 
+                className="text-red-600 font-semibold cursor-pointer flex items-center gap-2"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-4 w-4" />
+                Log out
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

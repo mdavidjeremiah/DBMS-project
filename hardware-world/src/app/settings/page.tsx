@@ -1,14 +1,70 @@
-"use client"
+'use client'
 
-import { Settings, Building2, ShieldCheck, Printer, Bell, Save } from "lucide-react"
+import { useState, useEffect } from 'react'
+import { Settings, Building2, ShieldCheck, Users, Plus, Mail, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { InviteTeamMemberModal } from '@/components/shared/InviteTeamMemberModal'
+import { AddMemberToBranchModal } from '@/components/shared/AddMemberToBranchModal'
+import { createClient } from '@/utils/supabase/client'
+import { Badge } from '@/components/ui/badge'
+
+interface TeamMember {
+  EmployeeID: string
+  EmployeeName: string
+  RoleType: string
+  Email?: string
+  BranchID?: string
+}
 
 export default function SettingsPage() {
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchTeamMembers()
+  }, [])
+
+  const fetchTeamMembers = async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('EMPLOYEE')
+        .select('EmployeeID, EmployeeName, RoleType, BranchID')
+        .order('EmployeeName', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching team members:', error)
+        return
+      }
+
+      setTeamMembers(data || [])
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    const colors: Record<string, string> = {
+      'Cashier': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      'Procurement Officer': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+      'Accountant': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'HR Staff': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      'Branch Manager': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      'Admin': 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400',
+    }
+    return colors[role] || 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400'
+  }
+
   return (
-    <div className="flex flex-col gap-6 max-w-5xl">
+    <div className="flex flex-col gap-6 max-w-6xl">
       {/* Header Banner */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
         <div>
@@ -17,13 +73,140 @@ export default function SettingsPage() {
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">Branch & Store Settings</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Configure branch operations, tax receipts, printer profiles, and Postgres RLS security policies.
+            Configure branch operations, team members, and role-based access control.
           </p>
         </div>
+      </div>
 
-        <Button className="rounded-xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-md shadow-orange-600/25 hover:from-orange-700 hover:to-amber-700">
-          <Save className="mr-2 h-4 w-4" /> Save Preferences
-        </Button>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Team Management Card */}
+        <div className="lg:col-span-2">
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Team Members</CardTitle>
+                    <p className="text-xs font-medium text-slate-500">Manage employees and their roles</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="rounded-lg bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
+                    onClick={() => setInviteModalOpen(true)}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Invite Team Member
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-orange-600" />
+                </div>
+              ) : teamMembers.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="h-12 w-12 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
+                  <p className="text-slate-500 dark:text-slate-400 mb-4">No team members yet</p>
+                  <Button
+                    size="sm"
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    onClick={() => setInviteModalOpen(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Member
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {teamMembers.map((member) => (
+                    <div
+                      key={member.EmployeeID}
+                      className="flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                          {member.EmployeeName}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          ID: {member.EmployeeID}
+                        </p>
+                      </div>
+                      <Badge className={`${getRoleBadgeColor(member.RoleType)}`}>
+                        {member.RoleType}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="space-y-4">
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-green-500/10 text-green-600">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Quick Actions</CardTitle>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-2">
+              <Button
+                onClick={() => setAddMemberModalOpen(true)}
+                className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium justify-start"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add to Branch
+              </Button>
+              <Button
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium justify-start"
+              >
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Manage Permissions
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">
+                System Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Auth Configured</span>
+                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Active
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">RLS Policies</span>
+                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Enabled
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Invites</span>
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  Available
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <div className="grid gap-6">
@@ -86,6 +269,18 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modals */}
+      <InviteTeamMemberModal
+        open={inviteModalOpen}
+        onOpenChange={setInviteModalOpen}
+        onSuccess={fetchTeamMembers}
+      />
+      <AddMemberToBranchModal
+        open={addMemberModalOpen}
+        onOpenChange={setAddMemberModalOpen}
+        onSuccess={fetchTeamMembers}
+      />
     </div>
   )
 }
