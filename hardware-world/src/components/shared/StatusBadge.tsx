@@ -8,42 +8,53 @@ interface StatusBadgeProps extends BadgeProps {
 }
 
 export function StatusBadge({ status, role, className, ...props }: StatusBadgeProps) {
-  let colorClass = "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300" // default
+  let colorClass = "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+  let dotColor = "bg-slate-400"
 
   if (status) {
     switch (status) {
       case "Pending":
-        colorClass = "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-500"
+        colorClass = "bg-amber-50 text-amber-800 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/50"
+        dotColor = "bg-amber-500 animate-pulse"
         break
       case "Approved":
-        colorClass = "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-500"
+        colorClass = "bg-sky-50 text-sky-800 border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800/50"
+        dotColor = "bg-sky-500"
         break
       case "Received":
-        colorClass = "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500"
+        colorClass = "bg-emerald-50 text-emerald-800 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/50"
+        dotColor = "bg-emerald-500"
         break
       case "Cancelled":
-        colorClass = "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-500"
+        colorClass = "bg-rose-50 text-rose-800 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800/50"
+        dotColor = "bg-rose-500"
         break
     }
   } else if (role) {
     switch (role) {
       case "Admin":
-        colorClass = "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+        colorClass = "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800"
+        dotColor = "bg-purple-500"
         break
       case "Branch Manager":
-        colorClass = "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400"
+        colorClass = "bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+        dotColor = "bg-indigo-500"
         break
       case "Procurement Officer":
-        colorClass = "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
+        colorClass = "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800"
+        dotColor = "bg-orange-500"
         break
       case "HR Staff":
-        colorClass = "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400"
+        colorClass = "bg-pink-50 text-pink-800 border-pink-200 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800"
+        dotColor = "bg-pink-500"
         break
       case "Accountant":
-        colorClass = "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400"
+        colorClass = "bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800"
+        dotColor = "bg-teal-500"
         break
       case "Cashier":
-        colorClass = "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400"
+        colorClass = "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+        dotColor = "bg-amber-500"
         break
     }
   }
@@ -51,9 +62,14 @@ export function StatusBadge({ status, role, className, ...props }: StatusBadgePr
   return (
     <Badge
       variant="outline"
-      className={cn("font-medium border-transparent", colorClass, className)}
+      className={cn(
+        "font-semibold text-xs px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 shadow-2xs transition-transform hover:scale-105",
+        colorClass,
+        className
+      )}
       {...props}
     >
+      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotColor)} />
       {status || role}
     </Badge>
   )

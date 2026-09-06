@@ -1,74 +1,83 @@
 @import "tailwindcss";
 
-/* next-themes toggles a `dark` class on <html> (attribute="class" in
-   ThemeProvider) rather than relying on prefers-color-scheme, so Tailwind's
-   dark: variant needs to key off that class instead of the OS setting. */
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Warm Hardware / DIY Store Base Colors */
+  --background: #f8fafc;
+  --foreground: #0f172a;
 
   --card: #ffffff;
-  --card-foreground: #171717;
+  --card-foreground: #0f172a;
 
   --popover: #ffffff;
-  --popover-foreground: #171717;
+  --popover-foreground: #0f172a;
 
-  /* Primary Blue, per the design system */
-  --primary: #2563eb;
+  /* Primary Burnt Orange (Construction Industry Iconic Brand) */
+  --primary: #ea580c;
+  --primary-hover: #c2410c;
   --primary-foreground: #ffffff;
 
-  --secondary: #f3f4f6;
-  --secondary-foreground: #171717;
+  /* Secondary Deep Steel Blue / Navy */
+  --secondary: #1e293b;
+  --secondary-foreground: #ffffff;
 
-  --muted: #f3f4f6;
-  --muted-foreground: #6b7280;
+  /* Accent Safety Yellow / Amber */
+  --accent: #f59e0b;
+  --accent-foreground: #0f172a;
 
-  --accent: #f3f4f6;
-  --accent-foreground: #171717;
+  /* Muted Light Slate */
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
 
-  /* Danger / Error */
-  --destructive: #ef4444;
+  /* Steel Blue Accent */
+  --steel: #0284c7;
+  --steel-foreground: #ffffff;
+
+  /* Danger / Alert */
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
-  /* Border / Line */
-  --border: #e5e7eb;
-  --input: #e5e7eb;
-  --ring: #2563eb;
+  /* Borders & Focus Rings */
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #ea580c;
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0f172a;
+  --foreground: #f8fafc;
 
-  --card: #18181b;
-  --card-foreground: #ededed;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
 
-  --popover: #18181b;
-  --popover-foreground: #ededed;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
 
-  /* Primary Blue (dark mode) */
-  --primary: #3b82f6;
-  --primary-foreground: #0a0a0a;
+  --primary: #f97316;
+  --primary-hover: #ea580c;
+  --primary-foreground: #ffffff;
 
-  --secondary: #27272a;
-  --secondary-foreground: #ededed;
+  --secondary: #334155;
+  --secondary-foreground: #f8fafc;
 
-  --muted: #27272a;
-  --muted-foreground: #9ca3af;
+  --muted: #334155;
+  --muted-foreground: #94a3b8;
 
-  --accent: #27272a;
-  --accent-foreground: #ededed;
+  --accent: #fbbf24;
+  --accent-foreground: #0f172a;
+
+  --steel: #38bdf8;
+  --steel-foreground: #0f172a;
 
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
 
-  --border: #374151;
-  --input: #374151;
-  --ring: #3b82f6;
+  --border: #334155;
+  --input: #334155;
+  --ring: #f97316;
 }
 
 @theme inline {
@@ -110,7 +119,82 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
+  html {
+    scroll-behavior: smooth;
   }
+  body {
+    @apply bg-background text-foreground antialiased font-sans selection:bg-orange-500/20 selection:text-orange-900;
+  }
+}
+
+.hover-lift {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(234, 88, 12, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+.card-hover {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.12);
+  border-color: rgba(234, 88, 12, 0.3);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.dark .glass-panel {
+  background: rgba(30, 41, 59, 0.85);
+}
+
+.gradient-hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 45%, #ea580c 100%);
+}
+
+.gradient-warm {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 50%, #fed7aa 100%);
+}
+
+.gradient-orange-badge {
+  background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+}
+
+.badge-glow {
+  box-shadow: 0 0 12px rgba(234, 88, 12, 0.4);
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: 200%;
+  animation: marquee 25s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ea580c;
 }
