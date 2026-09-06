@@ -1,3 +1,12 @@
-export default function PayrollPage() {
-  return <div className="flex flex-col gap-4"><h1 className="text-2xl font-semibold tracking-tight">Payroll</h1><p className="text-muted-foreground">This is a placeholder page.</p></div>
-}
+import { Banknote, Plus } from "lucide-react"
+import { createPayroll } from "@/app/actions"
+import { Field, SelectField } from "@/components/shared/Field"
+import { FormDialog } from "@/components/shared/FormDialog"
+import { DataNotice } from "@/components/shared/DataNotice"
+import { DataTable, type Column } from "@/components/shared/DataTable"
+import { StatCard } from "@/components/shared/StatCard"
+import { Button } from "@/components/ui/button"
+import { getEmployees, getPayroll, type PayrollRow } from "@/lib/queries"
+const money = (value: number) => new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(value)
+const columns: Column<PayrollRow>[] = [{ header: "Employee", accessorKey: "employee_name", sortable: true }, { header: "Month", accessorKey: "month", sortable: true }, { header: "Gross pay", accessorKey: "grosspay", cell: (row) => money(row.grosspay) }, { header: "Deductions", accessorKey: "deductions", cell: (row) => money(row.deductions) }, { header: "Net pay", accessorKey: "netpay", cell: (row) => money(row.netpay) }]
+export default async function PayrollPage() { const [payroll, employees] = await Promise.all([getPayroll(), getEmployees()]); return <div className="grid gap-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold">Payroll</h1><p className="text-muted-foreground">Net pay is calculated from gross pay minus deductions before saving.</p></div><FormDialog title="Generate payroll" description="Create a payroll record for one employee and month." trigger={<Button><Plus /> Generate payroll</Button>} action={createPayroll} submitLabel="Save payroll"><SelectField label="Employee" name="employeeid" required><option value="">Select employee</option>{employees.data.map((employee) => <option key={employee.employeeid} value={employee.employeeid}>{employee.name}</option>)}</SelectField><Field label="Month" name="month" required placeholder="e.g. September 2026" /><div className="grid grid-cols-2 gap-3"><Field label="Gross pay (UGX)" name="grosspay" type="number" min="0" required /><Field label="Deductions (UGX)" name="deductions" type="number" min="0" defaultValue="0" required /></div></FormDialog></div><DataNotice error={payroll.error ?? employees.error} rlsBlocked={payroll.rlsBlocked || employees.rlsBlocked} /><div className="grid gap-4 sm:grid-cols-2"><StatCard title="Payroll records" value={payroll.data.length} icon={<Banknote />} /></div><DataTable data={payroll.data} columns={columns} searchKey="employee_name" rowKey={(row) => row.payrollid} emptyMessage="No payroll records yet." /></div> }

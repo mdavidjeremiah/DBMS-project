@@ -25,6 +25,8 @@ interface DataTableProps<T> {
   columns: Column<T>[]
   searchKey?: keyof T
   isLoading?: boolean
+  emptyMessage?: string
+  rowKey?: (item: T, index: number) => React.Key
 }
 
 export function DataTable<T>({
@@ -32,6 +34,8 @@ export function DataTable<T>({
   columns,
   searchKey,
   isLoading = false,
+  emptyMessage = "No records yet.",
+  rowKey,
 }: DataTableProps<T>) {
   const [search, setSearch] = React.useState("")
   const [sortConfig, setSortConfig] = React.useState<{ key: keyof T; direction: "asc" | "desc" } | null>(null)
@@ -87,12 +91,6 @@ export function DataTable<T>({
               className="pl-8"
             />
           </div>
-          {/* Mock filters mirroring "All Statuses / All Types / All Priorities / All Assignees" */}
-          <div className="hidden lg:flex gap-2 text-sm text-muted-foreground ml-auto">
-            <Button variant="outline" size="sm" className="h-9">All Statuses</Button>
-            <Button variant="outline" size="sm" className="h-9">All Types</Button>
-            <Button variant="outline" size="sm" className="h-9">Assignees</Button>
-          </div>
         </div>
       )}
 
@@ -126,12 +124,12 @@ export function DataTable<T>({
             ) : paginatedData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No results found.
+                  {emptyMessage}
                 </TableCell>
               </TableRow>
             ) : (
               paginatedData.map((row, i) => (
-                <TableRow key={i}>
+                <TableRow key={rowKey?.(row, i) ?? i}>
                   {columns.map((col) => (
                     <TableCell key={String(col.accessorKey)}>
                       {col.cell ? col.cell(row) : String(row[col.accessorKey])}
@@ -146,7 +144,7 @@ export function DataTable<T>({
 
       <div className="flex items-center justify-between px-2">
         <div className="text-sm text-muted-foreground">
-          Showing {((page - 1) * itemsPerPage) + 1} to {Math.min(page * itemsPerPage, sortedData.length)} of {sortedData.length} entries
+          {sortedData.length ? <>Showing {((page - 1) * itemsPerPage) + 1} to {Math.min(page * itemsPerPage, sortedData.length)} of {sortedData.length} entries</> : "No entries"}
         </div>
         <div className="flex items-center space-x-2">
           <Button

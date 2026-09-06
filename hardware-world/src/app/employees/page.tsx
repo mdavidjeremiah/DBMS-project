@@ -1,3 +1,10 @@
-export default function EmployeesPage() {
-  return <div className="flex flex-col gap-4"><h1 className="text-2xl font-semibold tracking-tight">Employees</h1><p className="text-muted-foreground">This is a placeholder page.</p></div>
-}
+import { Users } from "lucide-react"
+import { EmployeeForm } from "@/components/employees/EmployeeForm"
+import { DataNotice } from "@/components/shared/DataNotice"
+import { DataTable, type Column } from "@/components/shared/DataTable"
+import { StatCard } from "@/components/shared/StatCard"
+import { StatusBadge } from "@/components/shared/StatusBadge"
+import { getEmployees, getOrganisation, type EmployeeRow } from "@/lib/queries"
+const money = (value: number) => new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(value)
+const columns: Column<EmployeeRow>[] = [{ header: "Employee", accessorKey: "name", sortable: true }, { header: "Role", accessorKey: "roletype", cell: (row) => <StatusBadge role={row.roletype as "Cashier" | "Procurement Officer" | "Accountant" | "HR Staff" | "Branch Manager"} /> }, { header: "Branch", accessorKey: "branch_name" }, { header: "Department", accessorKey: "department_name" }, { header: "Salary", accessorKey: "salary", cell: (row) => money(row.salary) }, { header: "Supervisor", accessorKey: "supervisor_name", cell: (row) => row.supervisor_name ?? "—" }]
+export default async function EmployeesPage() { const [employees, organisation] = await Promise.all([getEmployees(), getOrganisation()]); return <div className="grid gap-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold">Employees</h1><p className="text-muted-foreground">Employee records and the required role-specialisation rows.</p></div><EmployeeForm branches={organisation.branches.data} departments={organisation.departments.data} employees={employees.data} /></div><DataNotice error={employees.error ?? organisation.branches.error ?? organisation.departments.error} rlsBlocked={employees.rlsBlocked || organisation.branches.rlsBlocked || organisation.departments.rlsBlocked} /><div className="grid gap-4 sm:grid-cols-2"><StatCard title="Employees" value={employees.data.length} icon={<Users />} /></div><DataTable data={employees.data} columns={columns} searchKey="name" rowKey={(row) => row.employeeid} emptyMessage="No employee records yet. Create branches and departments first." /></div> }

@@ -1,9 +1,9 @@
 "use client"
 
 import { useTheme } from "next-themes"
-import { Search, Sun, Moon, Menu } from "lucide-react"
+import { Sun, Moon, Menu, Settings } from "lucide-react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,19 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "./Sidebar"
-import * as React from "react"
 
 export function Topbar() {
   const { setTheme, theme } = useTheme()
-  const [mounted, setMounted] = React.useState(false)
-
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
-
   return (
     <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
       <Sheet>
@@ -45,18 +37,7 @@ export function Topbar() {
           <Sidebar />
         </SheetContent>
       </Sheet>
-      <div className="w-full flex-1">
-        <form>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search products, orders, employees..."
-              className="w-full appearance-none bg-background pl-8 shadow-none md:w-2/3 lg:w-1/3"
-            />
-          </div>
-        </form>
-      </div>
+      <div className="w-full flex-1"><p className="text-sm text-muted-foreground">Live Supabase operations workspace</p></div>
       
       <Button
         variant="ghost"
@@ -69,24 +50,12 @@ export function Topbar() {
       </Button>
 
       <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button variant="secondary" size="icon" className="rounded-full" />
-          }
-        >
-            <Avatar>
-              <AvatarImage src="https://github.com/shadcn.png" />
-              <AvatarFallback>HW</AvatarFallback>
-            </Avatar>
-            <span className="sr-only">Toggle user menu</span>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger render={<Button variant="secondary" size="icon" className="rounded-full" />}><Settings /><span className="sr-only">Open workspace menu</span></DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Workspace</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Settings</DropdownMenuItem>
-          <DropdownMenuItem>Support</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Logout</DropdownMenuItem>
+          <DropdownMenuItem render={<Link href="/settings" />}>Organisation setup</DropdownMenuItem>
+          <DropdownMenuItem>Authentication is managed by Supabase</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>

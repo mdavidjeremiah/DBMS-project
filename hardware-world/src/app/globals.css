@@ -1,22 +1,30 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+:root { --radius: .625rem; --background: #f7f8f6; --foreground: #18211d; --card: #ffffff; --card-foreground: #18211d; --popover: #ffffff; --popover-foreground: #18211d; --primary: #176b4d; --primary-foreground: #ffffff; --secondary: #eaf0eb; --secondary-foreground: #18211d; --muted: #eef2ef; --muted-foreground: #65736b; --accent: #e2f0e8; --accent-foreground: #124732; --destructive: #bb3f3f; --destructive-foreground: #ffffff; --border: #dbe3dd; --input: #d3ded6; --ring: #21966c; }
+.dark { --background: #121916; --foreground: #e7efe9; --card: #18211d; --card-foreground: #e7efe9; --popover: #18211d; --popover-foreground: #e7efe9; --primary: #38b787; --primary-foreground: #09271b; --secondary: #223129; --secondary-foreground: #e7efe9; --muted: #25332c; --muted-foreground: #a8b8ad; --accent: #1e4432; --accent-foreground: #e7efe9; --destructive: #ef7777; --destructive-foreground: #251010; --border: #33443a; --input: #33443a; --ring: #38b787; }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 body {

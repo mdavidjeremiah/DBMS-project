@@ -1,3 +1,12 @@
-export default function ProductsPage() {
-  return <div className="flex flex-col gap-4"><h1 className="text-2xl font-semibold tracking-tight">Products</h1><p className="text-muted-foreground">This is a placeholder page.</p></div>
-}
+import { Package, Plus } from "lucide-react"
+import { createProduct } from "@/app/actions"
+import { Field, SelectField } from "@/components/shared/Field"
+import { FormDialog } from "@/components/shared/FormDialog"
+import { DataNotice } from "@/components/shared/DataNotice"
+import { DataTable, type Column } from "@/components/shared/DataTable"
+import { StatCard } from "@/components/shared/StatCard"
+import { Button } from "@/components/ui/button"
+import { getCategories, getProducts, type ProductRow } from "@/lib/queries"
+const money = (value: number) => new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(value)
+const columns: Column<ProductRow>[] = [{ header: "Product", accessorKey: "itemname", sortable: true }, { header: "Category", accessorKey: "category_name", sortable: true }, { header: "Unit price", accessorKey: "unitprice", sortable: true, cell: (row) => money(row.unitprice) }, { header: "Reorder level", accessorKey: "reorderlevel", sortable: true }, { header: "Description", accessorKey: "description", cell: (row) => row.description ?? "—" }]
+export default async function ProductsPage() { const [products, categories] = await Promise.all([getProducts(), getCategories()]); return <div className="grid gap-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold">Products</h1><p className="text-muted-foreground">The sellable catalogue from Supabase.</p></div><FormDialog title="Add product" description="Only fields present in the product table are collected." trigger={<Button><Plus /> Add product</Button>} action={createProduct} submitLabel="Add product"><Field label="Product name" name="itemname" required /><Field label="Description" name="description" /><div className="grid grid-cols-2 gap-3"><Field label="Unit price (UGX)" name="unitprice" type="number" min="0" step="1" required /><Field label="Reorder level" name="reorderlevel" type="number" min="0" defaultValue="0" required /></div><SelectField label="Category" name="categoryid" required><option value="">Select category</option>{categories.data.map((category) => <option key={category.categoryid} value={category.categoryid}>{category.categoryname}</option>)}</SelectField></FormDialog></div><DataNotice {...products} /><div className="grid gap-4 sm:grid-cols-2"><StatCard title="Products" value={products.data.length} description="catalogue entries" icon={<Package />} /></div><DataTable data={products.data} columns={columns} searchKey="itemname" rowKey={(row) => row.itemid} emptyMessage="No products yet. Create a category, then add a product." /></div> }
