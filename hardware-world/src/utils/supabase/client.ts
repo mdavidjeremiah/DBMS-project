@@ -10,5 +10,5 @@ export const createClient = () => {
     return null;
   }
 
-  return createBrowserClient(supabaseUrl, supabaseKey);
+  return createBrowserClient(supabaseUrl!, supabaseKey!);
 };
