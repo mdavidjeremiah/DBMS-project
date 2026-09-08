@@ -125,10 +125,11 @@ export function AddMemberToBranchModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Add Member to Branch/Department</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="sm:max-w-[480px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-6 overflow-hidden relative">
+        <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500" />
+        <DialogHeader className="pt-2">
+          <DialogTitle className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">Add Member to Branch/Department</DialogTitle>
+          <DialogDescription className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
             Assign an existing employee to a branch and/or department
           </DialogDescription>
         </DialogHeader>
