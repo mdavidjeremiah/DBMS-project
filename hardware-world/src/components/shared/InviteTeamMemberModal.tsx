@@ -60,6 +60,12 @@ export function InviteTeamMemberModal({
         return
       }
 
+      if (!supabase) {
+        setError('Supabase is not configured')
+        setLoading(false)
+        return
+      }
+
       // Invite user via Supabase Auth
       const { data, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
         redirectTo: `${window.location.origin}/auth/callback`,
@@ -144,7 +150,7 @@ export function InviteTeamMemberModal({
 
             <div className="space-y-2">
               <Label htmlFor="role">Role</Label>
-              <Select value={role} onValueChange={setRole} disabled={loading}>
+              <Select value={role} onValueChange={(v) => setRole(v ?? '')} disabled={loading}>
                 <SelectTrigger id="role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>

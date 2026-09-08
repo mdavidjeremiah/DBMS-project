@@ -31,6 +31,10 @@ export default function SettingsPage() {
   }, [])
 
   const fetchTeamMembers = async () => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       const { data, error } = await supabase

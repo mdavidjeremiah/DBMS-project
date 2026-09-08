@@ -19,6 +19,14 @@ export default function SignUpPage() {
   const router = useRouter()
   const supabase = createClient()
 
+  if (!supabase) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-500">Supabase is not configured.</p>
+      </div>
+    )
+  }
+
   const validateForm = () => {
     if (!email || !password || !confirmPassword) {
       setError('All fields are required')

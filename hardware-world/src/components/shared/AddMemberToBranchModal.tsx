@@ -52,6 +52,10 @@ export function AddMemberToBranchModal({
 
   const fetchData = async () => {
     setFetchingData(true)
+    if (!supabase) {
+      setFetchingData(false)
+      return
+    }
     try {
       const [empResult, branchResult, deptResult] = await Promise.all([
         supabase.from('EMPLOYEE').select('*'),
@@ -77,6 +81,12 @@ export function AddMemberToBranchModal({
     try {
       if (!selectedEmployee || !selectedBranch) {
         setError('Please select an employee and branch')
+        return
+      }
+
+      if (!supabase) {
+        setError('Supabase is not configured')
+        setLoading(false)
         return
       }
 
@@ -142,7 +152,7 @@ export function AddMemberToBranchModal({
 
             <div className="space-y-2">
               <Label htmlFor="employee">Employee</Label>
-              <Select value={selectedEmployee} onValueChange={setSelectedEmployee} disabled={loading || fetchingData}>
+              <Select value={selectedEmployee} onValueChange={(v) => setSelectedEmployee(v ?? '')} disabled={loading || fetchingData}>
                 <SelectTrigger id="employee">
                   <SelectValue placeholder="Select an employee" />
                 </SelectTrigger>
@@ -158,7 +168,7 @@ export function AddMemberToBranchModal({
 
             <div className="space-y-2">
               <Label htmlFor="branch">Branch</Label>
-              <Select value={selectedBranch} onValueChange={setSelectedBranch} disabled={loading || fetchingData}>
+              <Select value={selectedBranch} onValueChange={(v) => setSelectedBranch(v ?? '')} disabled={loading || fetchingData}>
                 <SelectTrigger id="branch">
                   <SelectValue placeholder="Select a branch" />
                 </SelectTrigger>
@@ -174,7 +184,7 @@ export function AddMemberToBranchModal({
 
             <div className="space-y-2">
               <Label htmlFor="department">Department (Optional)</Label>
-              <Select value={selectedDepartment} onValueChange={setSelectedDepartment} disabled={loading || fetchingData}>
+              <Select value={selectedDepartment} onValueChange={(v) => setSelectedDepartment(v ?? '')} disabled={loading || fetchingData}>
                 <SelectTrigger id="department">
                   <SelectValue placeholder="Select a department" />
                 </SelectTrigger>

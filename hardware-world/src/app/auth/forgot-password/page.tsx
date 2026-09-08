@@ -15,6 +15,14 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
 
+  if (!supabase) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-500">Supabase is not configured.</p>
+      </div>
+    )
+  }
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
