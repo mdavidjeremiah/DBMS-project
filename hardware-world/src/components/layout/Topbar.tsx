@@ -16,14 +16,72 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "./Sidebar"
 import * as React from "react"
+import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
 
 export function Topbar() {
   const { setTheme, theme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
+  const [user, setUser] = React.useState<any>(null)
+  const [userRole, setUserRole] = React.useState<string>("")
+  const [loading, setLoading] = React.useState(true)
+  const supabase = isSupabaseConfigured ? createClient() : null
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
+
+  const fetchUser = async () => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      setUser(authUser)
+      
+      if (authUser) {
+        // Fetch user's employee role from database
+        const { data: employee } = await supabase
+          .from("EMPLOYEE")
+          .select("RoleType")
+          .eq("AuthUserID", authUser.id)
+          .single()
+        
+        if (employee) {
+          setUserRole(employee.RoleType)
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching user:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    if (!supabase) return
+
+    await supabase.auth.signOut()
+    window.location.href = "/auth/sign-in"
+  }
+
+  const getInitials = (email?: string) => {
+    if (!email) return "HW"
+    return email.split("@")[0].slice(0, 2).toUpperCase()
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    const colors: Record<string, string> = {
+      "Cashier": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+      "Procurement Officer": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "Accountant": "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+      "HR Staff": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+      "Branch Manager": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+      "Admin": "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400",
+    }
+    return colors[role] || "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400"
+  }
 
   return (
     <div className="flex flex-col w-full z-20">
