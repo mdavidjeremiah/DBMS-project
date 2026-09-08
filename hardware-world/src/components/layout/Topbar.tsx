@@ -61,6 +61,7 @@ export function Topbar() {
   }
 
   const handleSignOut = async () => {
+    if (!supabase) return
     await supabase.auth.signOut()
     window.location.href = "/auth/sign-in"
   }

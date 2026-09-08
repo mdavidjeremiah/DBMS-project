@@ -22,6 +22,11 @@ export function useRoleGuard() {
 
   useEffect(() => {
     const checkAccess = async () => {
+      if (!supabase) {
+        setAuthorized(false)
+        setLoading(false)
+        return
+      }
       try {
         const { data: { user } } = await supabase.auth.getUser()
 
