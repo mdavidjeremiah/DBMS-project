@@ -16,7 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "./Sidebar"
 import * as React from "react"
-import { createClient } from "@/utils/supabase/client"
+import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
 
 export function Topbar() {
   const { setTheme, theme } = useTheme()
@@ -24,7 +24,7 @@ export function Topbar() {
   const [user, setUser] = React.useState<any>(null)
   const [userRole, setUserRole] = React.useState<string>("")
   const [loading, setLoading] = React.useState(true)
-  const supabase = createClient()
+  const supabase = isSupabaseConfigured ? createClient() : null
 
   React.useEffect(() => {
     setMounted(true)
@@ -32,6 +32,11 @@ export function Topbar() {
   }, [])
 
   const fetchUser = async () => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       setUser(authUser)
