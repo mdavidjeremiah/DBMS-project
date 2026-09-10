@@ -19,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hardware World",
-  description: "Hardware retail operations management",
+  title: "Hardware World | Operations Dashboard",
+  description: "Branch operations, procurement, sales, HR, and accounting in one place.",
 };
 
 export default function RootLayout({ children }: RootLayoutProps) {

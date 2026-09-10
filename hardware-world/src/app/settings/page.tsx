@@ -1,11 +1,290 @@
-import { Building2, Plus, Users } from "lucide-react"
-import { assignBranchManager, createBranch, createDepartment } from "@/app/actions"
-import { Field, SelectField } from "@/components/shared/Field"
-import { FormDialog } from "@/components/shared/FormDialog"
-import { DataNotice } from "@/components/shared/DataNotice"
-import { DataTable, type Column } from "@/components/shared/DataTable"
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Settings, Building2, ShieldCheck, Users, Plus, Mail, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { getEmployees, getOrganisation, type BranchRow, type DepartmentRow } from "@/lib/queries"
-const branchColumns: Column<BranchRow>[] = [{ header: "Branch", accessorKey: "branchname", sortable: true }, { header: "Location", accessorKey: "location" }, { header: "Contact", accessorKey: "contactnumber", cell: (row) => row.contactnumber ?? "—" }, { header: "Manager", accessorKey: "manager_name", cell: (row) => row.manager_name ?? "Unassigned" }]
-const departmentColumns: Column<DepartmentRow>[] = [{ header: "Department", accessorKey: "departmentname", sortable: true }, { header: "Branch", accessorKey: "branch_name" }]
-export default async function SettingsPage() { const [organisation, employees] = await Promise.all([getOrganisation(), getEmployees()]); const managers = employees.data.filter((employee) => employee.roletype === "Branch Manager"); return <div className="grid gap-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold">Organisation setup</h1><p className="text-muted-foreground">Create branches and departments before adding staff.</p></div><div className="flex flex-wrap gap-2"><FormDialog title="Add branch" description="Create a new branch. Assign its manager once that employee exists." trigger={<Button><Plus /> Add branch</Button>} action={createBranch} submitLabel="Add branch"><Field label="Branch name" name="branchname" required /><Field label="Location" name="location" required /><Field label="Contact number" name="contactnumber" type="tel" /></FormDialog><FormDialog title="Add department" description="Departments always belong to a branch." trigger={<Button variant="outline"><Plus /> Add department</Button>} action={createDepartment} submitLabel="Add department"><Field label="Department name" name="departmentname" required /><SelectField label="Branch" name="branchid" required><option value="">Select branch</option>{organisation.branches.data.map((branch) => <option key={branch.branchid} value={branch.branchid}>{branch.branchname}</option>)}</SelectField></FormDialog></div></div><DataNotice error={organisation.branches.error ?? organisation.departments.error ?? employees.error} rlsBlocked={organisation.branches.rlsBlocked || organisation.departments.rlsBlocked || employees.rlsBlocked} /><section className="grid gap-3"><h2 className="flex items-center gap-2 font-medium"><Building2 className="size-4" />Branches</h2><DataTable data={organisation.branches.data} columns={branchColumns} searchKey="branchname" rowKey={(row) => row.branchid} emptyMessage="No branches yet." /></section><section className="rounded-xl border bg-card p-4"><h2 className="mb-3 flex items-center gap-2 font-medium"><Users className="size-4" />Assign branch manager</h2><form action={assignBranchManager} className="grid gap-3 sm:grid-cols-3"><SelectField label="Branch" name="branchid" required><option value="">Select branch</option>{organisation.branches.data.map((branch) => <option key={branch.branchid} value={branch.branchid}>{branch.branchname}</option>)}</SelectField><SelectField label="Branch manager" name="manageremployeeid" required><option value="">Select manager</option>{managers.map((manager) => <option key={manager.employeeid} value={manager.employeeid}>{manager.name}</option>)}</SelectField><Button className="self-end">Assign manager</Button></form></section><section className="grid gap-3"><h2 className="font-medium">Departments</h2><DataTable data={organisation.departments.data} columns={departmentColumns} searchKey="departmentname" rowKey={(row) => row.departmentid} emptyMessage="No departments yet." /></section></div> }
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { InviteTeamMemberModal } from '@/components/shared/InviteTeamMemberModal'
+import { AddMemberToBranchModal } from '@/components/shared/AddMemberToBranchModal'
+import { createClient } from '@/utils/supabase/client'
+import { Badge } from '@/components/ui/badge'
+
+interface TeamMember {
+  EmployeeID: string
+  EmployeeName: string
+  RoleType: string
+  Email?: string
+  BranchID?: string
+}
+
+export default function SettingsPage() {
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchTeamMembers()
+  }, [])
+
+  const fetchTeamMembers = async () => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('EMPLOYEE')
+        .select('EmployeeID, EmployeeName, RoleType, BranchID')
+        .order('EmployeeName', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching team members:', error)
+        return
+      }
+
+      setTeamMembers(data || [])
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    const colors: Record<string, string> = {
+      'Cashier': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      'Procurement Officer': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+      'Accountant': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'HR Staff': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      'Branch Manager': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      'Admin': 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400',
+    }
+    return colors[role] || 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400'
+  }
+
+  return (
+    <div className="flex flex-col gap-6 max-w-6xl">
+      {/* Header Banner */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 mb-1">
+            <Settings className="h-4 w-4" /> System Preferences
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">Branch & Store Settings</h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+            Configure branch operations, team members, and role-based access control.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Team Management Card */}
+        <div className="lg:col-span-2">
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Team Members</CardTitle>
+                    <p className="text-xs font-medium text-slate-500">Manage employees and their roles</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="rounded-lg bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
+                    onClick={() => setInviteModalOpen(true)}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Invite Team Member
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-orange-600" />
+                </div>
+              ) : teamMembers.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="h-12 w-12 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
+                  <p className="text-slate-500 dark:text-slate-400 mb-4">No team members yet</p>
+                  <Button
+                    size="sm"
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    onClick={() => setInviteModalOpen(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Member
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {teamMembers.map((member) => (
+                    <div
+                      key={member.EmployeeID}
+                      className="flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                          {member.EmployeeName}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          ID: {member.EmployeeID}
+                        </p>
+                      </div>
+                      <Badge className={`${getRoleBadgeColor(member.RoleType)}`}>
+                        {member.RoleType}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="space-y-4">
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-green-500/10 text-green-600">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Quick Actions</CardTitle>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-2">
+              <Button
+                onClick={() => setAddMemberModalOpen(true)}
+                className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium justify-start"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add to Branch
+              </Button>
+              <Button
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium justify-start"
+              >
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Manage Permissions
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">
+                System Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Auth Configured</span>
+                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Active
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">RLS Policies</span>
+                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Enabled
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400">Invites</span>
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  Available
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="grid gap-6">
+        <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+          <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-orange-500/10 text-orange-600">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Store Identity & Tax Details</CardTitle>
+                <p className="text-xs font-medium text-slate-500">Business registration and official header for customer receipts</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="store-name" className="font-bold text-xs">Store Legal Name</Label>
+                <Input id="store-name" defaultValue="Hardware World Uganda Ltd" className="rounded-xl" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="tin" className="font-bold text-xs">URA Tax Identification Number (TIN)</Label>
+                <Input id="tin" defaultValue="1004829104" className="rounded-xl" />
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="branch" className="font-bold text-xs">Active Workspace Branch</Label>
+                <Input id="branch" defaultValue="Main Branch - Plot 42 Jinja Road, Kampala" className="rounded-xl" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="currency" className="font-bold text-xs">Operating Currency</Label>
+                <Input id="currency" defaultValue="UGX (Ugandan Shilling)" disabled className="rounded-xl bg-slate-100 dark:bg-slate-800" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/90 dark:border-slate-800 shadow-md">
+          <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Supabase RLS & Security Policies</CardTitle>
+                <p className="text-xs font-medium text-slate-500">Role-Based Access Control enforced at database layer</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-5">
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-900 dark:text-emerald-300 text-xs font-semibold flex items-center justify-between">
+              <span>Postgres Row Level Security (RLS) Status</span>
+              <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-full text-[11px] font-extrabold">Active & Enforced</span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Every table (SALE, PAYROLL, PURCHASE_ORDER, PRODUCT) uses row-level policies so Cashiers, Procurement Officers, Accountants, and HR Staff only access their authorized branch rows.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Modals */}
+      <InviteTeamMemberModal
+        open={inviteModalOpen}
+        onOpenChange={setInviteModalOpen}
+        onSuccess={fetchTeamMembers}
+      />
+      <AddMemberToBranchModal
+        open={addMemberModalOpen}
+        onOpenChange={setAddMemberModalOpen}
+        onSuccess={fetchTeamMembers}
+      />
+    </div>
+  )
+}

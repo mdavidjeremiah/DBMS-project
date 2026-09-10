@@ -8,9 +8,9 @@ import { ShieldAlert, TriangleAlert } from "lucide-react"
  */
 export function RlsNotice() {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>
+    <div className="flex items-start gap-3 rounded-xl border border-dashed border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-300">
+      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <p className="font-medium text-xs leading-relaxed">
         No rows are visible yet because Row Level Security is enabled on this
         table with no policies defined (by design, until Issue #3 adds the
         role permission matrix). The query itself is working correctly.
@@ -21,9 +21,9 @@ export function RlsNotice() {
 
 export function ErrorNotice({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>Couldn't load this data: {message}</p>
+    <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-800 dark:text-rose-300">
+      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+      <p className="font-medium text-xs">Couldn&apos;t load this data: {message}</p>
     </div>
   )
 }
