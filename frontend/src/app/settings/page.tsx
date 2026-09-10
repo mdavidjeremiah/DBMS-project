@@ -121,7 +121,7 @@ export default function SettingsPage() {
                           ID: {member.employeeid}
                         </p>
                       </div>
-                      <Badge className={`${getRoleBadgeColor(member.RoleType)}`}>
+                      <Badge className={`${getRoleBadgeColor(member.roletype)}`}>
                         {member.roletype}
                       </Badge>
                     </div>
