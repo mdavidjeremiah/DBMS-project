@@ -1,0 +1,115 @@
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List
+from datetime import date, datetime
+from decimal import Decimal
+from models import RoleType, POStatus, LedgerSourceType
+
+# --- Auth Schemas ---
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+class UserCreate(BaseModel):
+    name: str
+    nin: str
+    email: EmailStr
+    password: str
+    phone: Optional[str] = None
+    datehired: Optional[date] = None
+    salary: Decimal
+    departmentid: int
+    branchid: int
+    supervisorid: Optional[int] = None
+    roletype: RoleType
+
+class UserResponse(BaseModel):
+    employeeid: int
+    name: str
+    email: EmailStr
+    roletype: RoleType
+    branchid: int
+    
+    class Config:
+        from_attributes = True
+
+# Add more schemas as needed for other models
+class BranchBase(BaseModel):
+    branchname: str
+    location: str
+    contactnumber: Optional[str] = None
+    manageremployeeid: Optional[int] = None
+
+class BranchCreate(BranchBase):
+    pass
+
+class BranchResponse(BranchBase):
+    branchid: int
+    class Config:
+        from_attributes = True
+
+class CategoryCreate(BaseModel):
+    categoryname: str
+
+class ProductCreate(BaseModel):
+    itemname: str
+    description: Optional[str] = None
+    unitprice: Decimal
+    reorderlevel: int = 0
+    categoryid: int
+
+class SupplierCreate(BaseModel):
+    suppliername: str
+    contactperson: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class PurchaseOrderCreate(BaseModel):
+    supplierid: int
+    employeeid: int
+    status: POStatus = POStatus.PENDING
+
+class PayrollCreate(BaseModel):
+    employeeid: int
+    month: str
+    grosspay: Decimal
+    deductions: Decimal = Decimal("0")
+
+class SaleItemCreate(BaseModel):
+    itemid: int
+    quantity: int
+
+class SaleCreate(BaseModel):
+    customerid: Optional[int] = None
+    customername: Optional[str] = None
+    customerphone: Optional[str] = None
+    employeeid: int
+    branchid: int
+    items: List[SaleItemCreate]
+
+class LedgerCreate(BaseModel):
+    sourcetype: LedgerSourceType
+    saleid: Optional[int] = None
+    payrollid: Optional[int] = None
+    amount: Decimal
+    recordedby: int
+
+class EmployeeCreate(BaseModel):
+    name: str
+    nin: str
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    phone: Optional[str] = None
+    datehired: Optional[date] = None
+    salary: Decimal
+    departmentid: int
+    branchid: int
+    supervisorid: Optional[int] = None
+    roletype: RoleType
+    pos_terminalid: Optional[str] = None
+    approvallimit: Optional[Decimal] = None
+    certificationnumber: Optional[str] = None
+    hr_role: Optional[str] = None
+    managementlevel: Optional[str] = None

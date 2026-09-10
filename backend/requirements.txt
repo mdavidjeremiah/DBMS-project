@@ -1,0 +1,10 @@
+fastapi==0.141.1
+uvicorn==0.23.2
+sqlalchemy==2.0.52
+pymysql==1.1.0
+python-dotenv==1.0.0
+python-multipart==0.0.20
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.5.0
+pydantic[email]==2.13.5
+cryptography==41.0.4

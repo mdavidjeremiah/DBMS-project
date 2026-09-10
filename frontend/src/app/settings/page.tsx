@@ -1,59 +1,40 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useEffectEvent } from 'react'
 import { Settings, Building2, ShieldCheck, Users, Plus, Mail, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { InviteTeamMemberModal } from '@/components/shared/InviteTeamMemberModal'
-import { AddMemberToBranchModal } from '@/components/shared/AddMemberToBranchModal'
-import { createClient } from '@/utils/supabase/client'
+import { browserApiRequest } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 
 interface TeamMember {
-  EmployeeID: string
-  EmployeeName: string
-  RoleType: string
-  Email?: string
-  BranchID?: string
+  employeeid: number
+  name: string
+  roletype: string
+  branchid?: number
 }
 
 export default function SettingsPage() {
-  const [inviteModalOpen, setInviteModalOpen] = useState(false)
-  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
 
-  useEffect(() => {
-    fetchTeamMembers()
-  }, [])
-
-  const fetchTeamMembers = async () => {
-    if (!supabase) {
-      setLoading(false)
-      return
-    }
+  const fetchTeamMembers = useEffectEvent(async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('EMPLOYEE')
-        .select('EmployeeID, EmployeeName, RoleType, BranchID')
-        .order('EmployeeName', { ascending: true })
-
-      if (error) {
-        console.error('Error fetching team members:', error)
-        return
-      }
-
-      setTeamMembers(data || [])
+      setTeamMembers(await browserApiRequest<TeamMember[]>('/employees'))
     } catch (err) {
       console.error('Error:', err)
     } finally {
       setLoading(false)
     }
-  }
+  })
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchTeamMembers(), 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchTeamMembers])
 
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
@@ -101,7 +82,6 @@ export default function SettingsPage() {
                   <Button
                     size="sm"
                     className="rounded-lg bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
-                    onClick={() => setInviteModalOpen(true)}
                   >
                     <Mail className="h-4 w-4" />
                     Invite Team Member
@@ -121,7 +101,6 @@ export default function SettingsPage() {
                   <Button
                     size="sm"
                     className="bg-orange-600 hover:bg-orange-700 text-white"
-                    onClick={() => setInviteModalOpen(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add First Member
@@ -131,19 +110,19 @@ export default function SettingsPage() {
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {teamMembers.map((member) => (
                     <div
-                      key={member.EmployeeID}
+                      key={member.employeeid}
                       className="flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
                       <div>
                         <p className="font-semibold text-slate-900 dark:text-white">
-                          {member.EmployeeName}
+                          {member.name}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          ID: {member.EmployeeID}
+                          ID: {member.employeeid}
                         </p>
                       </div>
                       <Badge className={`${getRoleBadgeColor(member.RoleType)}`}>
-                        {member.RoleType}
+                        {member.roletype}
                       </Badge>
                     </div>
                   ))}
@@ -168,7 +147,6 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="pt-4 space-y-2">
               <Button
-                onClick={() => setAddMemberModalOpen(true)}
                 className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium justify-start"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -230,17 +208,17 @@ export default function SettingsPage() {
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="store-name" className="font-bold text-xs">Store Legal Name</Label>
-                <Input id="store-name" defaultValue="Hardware World Uganda Ltd" className="rounded-xl" />
+                <Input id="store-name" placeholder="Configured in your business profile" className="rounded-xl" />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="tin" className="font-bold text-xs">URA Tax Identification Number (TIN)</Label>
-                <Input id="tin" defaultValue="1004829104" className="rounded-xl" />
+                <Input id="tin" placeholder="Configured in your business profile" className="rounded-xl" />
               </div>
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="branch" className="font-bold text-xs">Active Workspace Branch</Label>
-                <Input id="branch" defaultValue="Main Branch - Plot 42 Jinja Road, Kampala" className="rounded-xl" />
+                <Input id="branch" placeholder="Select a live branch" className="rounded-xl" />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="currency" className="font-bold text-xs">Operating Currency</Label>
@@ -257,34 +235,23 @@ export default function SettingsPage() {
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">Supabase RLS & Security Policies</CardTitle>
+                <CardTitle className="text-lg font-extrabold text-slate-900 dark:text-white">FastAPI & MySQL Security</CardTitle>
                 <p className="text-xs font-medium text-slate-500">Role-Based Access Control enforced at database layer</p>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3 pt-5">
             <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-900 dark:text-emerald-300 text-xs font-semibold flex items-center justify-between">
-              <span>Postgres Row Level Security (RLS) Status</span>
-              <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-full text-[11px] font-extrabold">Active & Enforced</span>
+              <span>FastAPI authentication status</span>
+              <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-full text-[11px] font-extrabold">JWT enabled</span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Every table (SALE, PAYROLL, PURCHASE_ORDER, PRODUCT) uses row-level policies so Cashiers, Procurement Officers, Accountants, and HR Staff only access their authorized branch rows.
+              FastAPI validates the signed-in employee role before allowing access to MySQL-backed operations.
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Modals */}
-      <InviteTeamMemberModal
-        open={inviteModalOpen}
-        onOpenChange={setInviteModalOpen}
-        onSuccess={fetchTeamMembers}
-      />
-      <AddMemberToBranchModal
-        open={addMemberModalOpen}
-        onOpenChange={setAddMemberModalOpen}
-        onSuccess={fetchTeamMembers}
-      />
     </div>
   )
 }
