@@ -4,13 +4,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from models import RoleType, POStatus, LedgerSourceType
 
-# --- Auth Schemas ---
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    department: Optional[str] = None
+    login_type: Optional[str] = "staff" # "admin" or "staff"
 
 class UserCreate(BaseModel):
     name: str
@@ -25,15 +30,20 @@ class UserCreate(BaseModel):
     supervisorid: Optional[int] = None
     roletype: RoleType
 
+
 class UserResponse(BaseModel):
     employeeid: int
     name: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     roletype: RoleType
-    branchid: int
+    departmentid: Optional[int] = None
+    department_name: Optional[str] = None
+    branchid: Optional[int] = None
+    branch_name: Optional[str] = None
     
     class Config:
         from_attributes = True
+
 
 # Add more schemas as needed for other models
 class BranchBase(BaseModel):

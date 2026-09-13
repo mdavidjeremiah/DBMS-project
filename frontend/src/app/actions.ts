@@ -25,7 +25,29 @@ export async function createCategory(form: FormData) { await post("/categories",
 export async function createSupplier(form: FormData) { await post("/suppliers", { suppliername: text(form, "suppliername"), contactperson: text(form, "contactperson", false) || null, phone: text(form, "phone", false) || null, address: text(form, "address", false) || null }); finish("/suppliers") }
 export async function createProduct(form: FormData) { await post("/products", { itemname: text(form, "itemname"), description: text(form, "description", false) || null, unitprice: number(form, "unitprice"), reorderlevel: number(form, "reorderlevel"), categoryid: number(form, "categoryid", 1) }); finish("/products") }
 export async function createPurchaseOrder(form: FormData) { await post("/purchase-orders", { supplierid: number(form, "supplierid", 1), employeeid: number(form, "employeeid", 1), status: "Pending" }); finish("/purchase-orders") }
-export async function createEmployee(form: FormData) { await post("/employees", { name: text(form, "name"), nin: text(form, "nin"), phone: text(form, "phone", false) || null, datehired: text(form, "datehired", false) || null, salary: number(form, "salary"), departmentid: number(form, "departmentid", 1), branchid: number(form, "branchid", 1), supervisorid: optionalNumber(form, "supervisorid"), roletype: text(form, "roletype"), pos_terminalid: text(form, "pos_terminalid", false) || null, approvallimit: optionalNumber(form, "approvallimit"), certificationnumber: text(form, "certificationnumber", false) || null, hr_role: text(form, "hr_role", false) || null, managementlevel: text(form, "managementlevel", false) || null }); finish("/employees") }
+
+export async function createEmployee(form: FormData) { 
+  await post("/employees", { 
+    name: text(form, "name"), 
+    nin: text(form, "nin"), 
+    email: text(form, "email", false) || null,
+    password: text(form, "password", false) || null,
+    phone: text(form, "phone", false) || null, 
+    datehired: text(form, "datehired", false) || null, 
+    salary: number(form, "salary"), 
+    departmentid: number(form, "departmentid", 1), 
+    branchid: number(form, "branchid", 1), 
+    supervisorid: optionalNumber(form, "supervisorid"), 
+    roletype: text(form, "roletype"), 
+    pos_terminalid: text(form, "pos_terminalid", false) || null, 
+    approvallimit: optionalNumber(form, "approvallimit"), 
+    certificationnumber: text(form, "certificationnumber", false) || null, 
+    hr_role: text(form, "hr_role", false) || null, 
+    managementlevel: text(form, "managementlevel", false) || null 
+  })
+  finish("/employees") 
+}
+
 export async function createPayroll(form: FormData) { const grosspay = number(form, "grosspay"); const deductions = number(form, "deductions"); if (deductions > grosspay) throw new Error("Deductions cannot exceed gross pay"); await post("/payroll", { employeeid: number(form, "employeeid", 1), month: text(form, "month"), grosspay, deductions }); finish("/payroll") }
 export async function createLedgerEntry(form: FormData) { const sourcetype = text(form, "sourcetype"); const sourceid = number(form, "sourceid", 1); await post("/ledger", { sourcetype, saleid: sourcetype === "SALE" ? sourceid : null, payrollid: sourcetype === "PAYROLL" ? sourceid : null, amount: number(form, "amount"), recordedby: number(form, "recordedby", 1) }); finish("/ledger") }
 export async function createSale(form: FormData) {

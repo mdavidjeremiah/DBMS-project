@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -15,7 +16,9 @@ import {
   BookOpen,
   Settings,
   Building2,
-  ChevronDown
+  ChevronDown,
+  Shield,
+  UserCheck
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -26,25 +29,51 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
+import { browserApiRequest } from "@/lib/api"
 
-const navItems = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
-  { title: "Products", href: "/products", icon: Package },
-  { title: "Categories", href: "/categories", icon: Tags },
-  { title: "Suppliers", href: "/suppliers", icon: Truck },
-  { title: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart },
-  { title: "Sales (POS)", href: "/sales", icon: Banknote },
-  { title: "Employees", href: "/employees", icon: Users },
-  { title: "Payroll", href: "/payroll", icon: Briefcase },
-  { title: "Ledger", href: "/ledger", icon: BookOpen },
-  { title: "Settings", href: "/settings", icon: Settings },
+type UserProfile = {
+  employeeid: number
+  name: string
+  email: string
+  roletype: string
+  department_name?: string | null
+  branch_name?: string | null
+}
+
+const ALL_NAV_ITEMS = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard, roles: ["*"] },
+  { title: "Products", href: "/products", icon: Package, roles: ["Admin", "Cashier", "Procurement Officer", "Branch Manager"] },
+  { title: "Categories", href: "/categories", icon: Tags, roles: ["Admin", "Procurement Officer", "Branch Manager"] },
+  { title: "Suppliers", href: "/suppliers", icon: Truck, roles: ["Admin", "Procurement Officer", "Branch Manager"] },
+  { title: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: ["Admin", "Procurement Officer", "Branch Manager"] },
+  { title: "Sales (POS)", href: "/sales", icon: Banknote, roles: ["Admin", "Cashier", "Branch Manager", "Accountant"] },
+  { title: "Employees", href: "/employees", icon: Users, roles: ["Admin", "HR Staff", "Branch Manager"] },
+  { title: "Payroll", href: "/payroll", icon: Briefcase, roles: ["Admin", "HR Staff", "Accountant"] },
+  { title: "Ledger", href: "/ledger", icon: BookOpen, roles: ["Admin", "Accountant"] },
+  { title: "Settings", href: "/settings", icon: Settings, roles: ["Admin"] },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
+  const [user, setUser] = useState<UserProfile | null>(null)
+
+  useEffect(() => {
+    browserApiRequest<UserProfile>("/users/me")
+      .then(setUser)
+      .catch(() => setUser(null))
+  }, [])
+
+  // Filter items according to user role
+  const userRole = user?.roletype || "Admin"
+  const visibleNavItems = ALL_NAV_ITEMS.filter((item) => {
+    if (item.roles.includes("*")) return true
+    if (userRole === "Admin") return true
+    return item.roles.includes(userRole)
+  })
 
   return (
     <div className="flex h-full w-64 flex-col border-r border-slate-200/80 bg-slate-900 text-slate-100 dark:border-slate-800 dark:bg-slate-950 shadow-xl">
+      {/* Brand & Workspace */}
       <div className="flex h-16 items-center border-b border-slate-800 px-4 lg:px-6">
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -58,27 +87,38 @@ export function Sidebar() {
               </div>
               <div className="flex flex-col text-left truncate">
                 <span className="truncate font-extrabold tracking-tight text-white text-sm">HARDWARE WORLD</span>
-                <span className="text-[10px] font-medium text-amber-400 uppercase tracking-widest">Pro DIY & Trade</span>
+                <span className="text-[10px] font-medium text-amber-400 uppercase tracking-widest">
+                  {user?.branch_name ?? "Main Branch"}
+                </span>
               </div>
             </div>
             <ChevronDown className="h-4 w-4 text-slate-400" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 bg-slate-900 text-slate-100 border-slate-800">
-            <DropdownMenuLabel className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Workspaces & Branches</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+              Assigned Workspace
+            </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-slate-800" />
-            <DropdownMenuItem className="focus:bg-orange-500 focus:text-white cursor-pointer font-medium">Main Industrial Branch</DropdownMenuItem>
-            <DropdownMenuItem className="focus:bg-orange-500 focus:text-white cursor-pointer font-medium">Downtown Retail Store</DropdownMenuItem>
-            <DropdownMenuItem className="focus:bg-orange-500 focus:text-white cursor-pointer font-medium">Central Supply Warehouse</DropdownMenuItem>
+            <DropdownMenuItem className="focus:bg-orange-500 focus:text-white cursor-pointer font-medium">
+              Main Industrial Branch
+            </DropdownMenuItem>
+            <DropdownMenuItem className="focus:bg-orange-500 focus:text-white cursor-pointer font-medium">
+              Downtown Retail Store
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
+      {/* Navigation Links Filtered by ABAC/RBAC */}
       <div className="flex-1 overflow-auto py-3">
-        <div className="px-4 mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          Store Operations
+        <div className="px-4 mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          <span>{userRole === "Admin" ? "Master Navigation" : `${userRole} Access`}</span>
+          <span className="text-[9px] text-amber-500 font-normal lowercase bg-amber-500/10 px-1.5 py-0.5 rounded">
+            {user?.department_name ?? "general"}
+          </span>
         </div>
         <nav className="grid gap-1 px-3 text-sm font-medium">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
             return (
@@ -92,10 +132,12 @@ export function Sidebar() {
                     : "text-slate-300 hover:bg-slate-800/70 hover:text-white"
                 )}
               >
-                <Icon className={cn(
-                  "h-4 w-4 transition-transform duration-200 group-hover:scale-110",
-                  isActive ? "text-white" : "text-amber-500/80 group-hover:text-amber-400"
-                )} />
+                <Icon
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200 group-hover:scale-110",
+                    isActive ? "text-white" : "text-amber-500/80 group-hover:text-amber-400"
+                  )}
+                />
                 <span className="truncate">{item.title}</span>
                 {isActive && (
                   <span className="ml-auto h-2 w-2 rounded-full bg-white animate-pulse" />
@@ -106,12 +148,19 @@ export function Sidebar() {
         </nav>
       </div>
 
-      <div className="p-3 m-3 rounded-xl bg-slate-800/60 border border-slate-700/50">
-        <div className="flex items-center gap-2.5">
-          <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold text-slate-200">Main Branch Active</span>
-            <span className="text-[10px] text-slate-400">100% System Operational</span>
+      {/* User ABAC Status Card */}
+      <div className="p-3 m-3 rounded-2xl bg-slate-800/60 border border-slate-700/50">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30 shrink-0">
+            {userRole === "Admin" ? <Shield className="h-5 w-5" /> : <UserCheck className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-bold text-white truncate block">
+              {user?.name ?? "Authenticated Staff"}
+            </span>
+            <span className="text-[10px] text-amber-400 font-semibold block truncate">
+              {user?.department_name ?? "Administration"}
+            </span>
           </div>
         </div>
       </div>

@@ -1,8 +1,23 @@
 import { serverApiRequest } from "@/lib/api-server"
 
-export async function getServerSession() {
-  try { return { user: await serverApiRequest<{ employeeid: number; name: string; email: string; roletype: string; branchid: number }>("/users/me") } }
-  catch { return { user: null } }
+export type UserSession = {
+  employeeid: number
+  name: string
+  email: string
+  roletype: string
+  departmentid?: number | null
+  department_name?: string | null
+  branchid?: number | null
+  branch_name?: string | null
+}
+
+export async function getServerSession(): Promise<{ user: UserSession | null }> {
+  try {
+    const user = await serverApiRequest<UserSession>("/users/me")
+    return { user }
+  } catch {
+    return { user: null }
+  }
 }
 
 export async function signOutServer() {
