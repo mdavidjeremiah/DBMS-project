@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 from datetime import timedelta, datetime
 from decimal import Decimal
 
@@ -9,15 +10,20 @@ import models
 import schemas
 import auth
 from database import engine, get_db
+import seed
 
-# Create the database tables automatically
+# Create the database tables and seed initial admin & records
 models.Base.metadata.create_all(bind=engine)
+try:
+    seed.seed_database()
+except Exception as err:
+    print(f"Database seed notice: {err}")
 
 app = FastAPI(title="Hardware World API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,6 +32,12 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Hardware World API"}
+
+@app.get("/departments/public")
+def get_public_departments(db: Session = Depends(get_db)):
+    """Public endpoint for login page department dropdown."""
+    departments = db.query(models.Department).order_by(models.Department.departmentname).all()
+    return [{"departmentid": d.departmentid, "departmentname": d.departmentname, "branchid": d.branchid} for d in departments]
 
 def require_role(current_user: models.Employee, *roles: models.RoleType):
     if current_user.roletype not in roles:
@@ -40,7 +52,14 @@ def branch_name(db: Session, branchid: int | None):
     return branch.branchname if branch else "Unknown branch"
 
 @app.post("/register", response_model=schemas.UserResponse)
-def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def register_user(
+    user: schemas.UserCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.Employee = Depends(auth.get_current_user)
+):
+    # Only Administrator can provision new users into the system
+    require_role(current_user, models.RoleType.ADMIN)
+    
     db_user = db.query(models.Employee).filter(models.Employee.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -52,7 +71,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         email=user.email,
         hashed_password=hashed_password,
         phone=user.phone,
-        datehired=user.datehired,
+        datehired=user.datehired or datetime.utcnow().date(),
         salary=user.salary,
         departmentid=user.departmentid,
         branchid=user.branchid,
@@ -62,29 +81,108 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    if new_user.roletype == models.RoleType.HR_STAFF:
-        db.add(models.HRStaff(employeeid=new_user.employeeid, hr_role="HR"))
-        db.commit()
     return new_user
 
 @app.post("/login", response_model=schemas.Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(models.Employee).filter(models.Employee.email == form_data.username).first()
-    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+async def login_for_access_token(request: Request, db: Session = Depends(get_db)):
+    """
+    Unified Authentication Endpoint with:
+    - Support for JSON payload and Form Data
+    - Name or Email lookup
+    - Role-Based Access Control (RBAC) validation
+    - Attribute-Based Access Control (ABAC) department matching
+    """
+    content_type = request.headers.get("content-type", "")
+    username = ""
+    password = ""
+    selected_dept = None
+    login_type = "staff"
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            username = str(body.get("username", "")).strip()
+            password = str(body.get("password", "")).strip()
+            selected_dept = body.get("department")
+            login_type = str(body.get("login_type", "staff")).strip().lower()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    else:
+        form = await request.form()
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", "")).strip()
+        selected_dept = form.get("department")
+        login_type = str(form.get("login_type", "staff")).strip().lower()
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username/Email and Password are required")
+
+    # Lookup user by Email OR Full Name (case-insensitive)
+    user = db.query(models.Employee).filter(
+        or_(
+            func.lower(models.Employee.email) == username.lower(),
+            func.lower(models.Employee.name) == username.lower()
+        )
+    ).first()
+
+    if not user or not user.hashed_password or not auth.verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username/email or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # 1. RBAC (Role-Based Access Control) Policy Check:
+    if login_type == "admin":
+        if user.roletype != models.RoleType.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access Denied (RBAC): Your account role is '{user.roletype.value}'. Only Administrators can log in through the Admin Portal."
+            )
+
+    # 2. ABAC (Attribute-Based Access Control) Policy Check:
+    # If logging in as staff, check department match
+    if login_type == "staff":
+        if user.roletype != models.RoleType.ADMIN and selected_dept:
+            user_dept = user.department.departmentname if user.department else ""
+            # Match against department name or department ID
+            is_name_match = user_dept.strip().lower() == str(selected_dept).strip().lower()
+            is_id_match = str(user.departmentid) == str(selected_dept).strip()
+
+            if not (is_name_match or is_id_match):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access Denied (ABAC): Department mismatch. Your user profile is assigned to '{user_dept}', but you selected '{selected_dept}'. Staff members can only log into their assigned department dashboard."
+                )
+
+    dept_name = user.department.departmentname if user.department else "General"
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
-        data={"sub": user.email, "role": user.roletype}, expires_delta=access_token_expires
+        data={
+            "sub": user.email, 
+            "name": user.name,
+            "role": user.roletype.value,
+            "departmentid": user.departmentid,
+            "departmentname": dept_name,
+            "branchid": user.branchid
+        }, 
+        expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/users/me", response_model=schemas.UserResponse)
+@app.get("/users/me")
 def read_users_me(current_user: models.Employee = Depends(auth.get_current_user)):
-    return current_user
+    return {
+        "employeeid": current_user.employeeid,
+        "name": current_user.name,
+        "email": current_user.email,
+        "roletype": current_user.roletype.value,
+        "departmentid": current_user.departmentid,
+        "department_name": current_user.department.departmentname if current_user.department else None,
+        "branchid": current_user.branchid,
+        "branch_name": current_user.branch.branchname if current_user.branch else None
+    }
+
 
 # Example of a protected endpoint
 @app.get("/branches", response_model=list[schemas.BranchResponse])

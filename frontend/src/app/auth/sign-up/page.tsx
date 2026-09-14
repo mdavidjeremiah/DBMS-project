@@ -1,16 +1,52 @@
-"use client"
-
-import { useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { AlertCircle } from "lucide-react"
+import { ShieldAlert, ArrowLeft, Building2, Lock, UserCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { API_URL } from "@/lib/api"
 
 export default function SignUpPage() {
-  const router = useRouter(); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false)
-  async function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(null); const form = new FormData(event.currentTarget); const payload = Object.fromEntries(form.entries()); try { const response = await fetch(`${API_URL}/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, salary: Number(payload.salary), departmentid: Number(payload.departmentid), branchid: Number(payload.branchid), roletype: "HR Staff" }) }); const data = await response.json(); if (!response.ok) throw new Error(data.detail ?? "Registration failed"); router.push("/auth/sign-in") } catch (err) { setError(err instanceof Error ? err.message : "Registration failed") } finally { setLoading(false) } }
-  return <div className="flex min-h-screen items-center justify-center bg-slate-900 p-4"><form onSubmit={submit} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-8 dark:bg-slate-800"><h1 className="text-2xl font-black">Register backend user</h1><p className="text-sm text-slate-500">This creates an employee record in MySQL.</p>{error && <div className="flex gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="h-4 w-4" />{error}</div>}<Label>Name<Input name="name" required /></Label><Label>NIN<Input name="nin" required /></Label><Label>Email<Input name="email" type="email" required /></Label><Label>Password<Input name="password" type="password" minLength={8} required /></Label><Label>Salary<Input name="salary" type="number" min="0" required /></Label><Label>Department ID<Input name="departmentid" type="number" min="1" required /></Label><Label>Branch ID<Input name="branchid" type="number" min="1" required /></Label><Button disabled={loading}>{loading ? "Registering..." : "Register"}</Button><Link className="text-center text-sm text-orange-600" href="/auth/sign-in">Back to sign in</Link></form></div>
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-stone-900 p-4 text-slate-100">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-800/80 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-xl text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <ShieldAlert className="h-8 w-8" />
+        </div>
+
+        <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
+          Account Provisioning Restricted
+        </h1>
+        <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-amber-500">
+          Access Control Policy Notice (RBAC & ABAC)
+        </p>
+
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-left text-xs leading-relaxed text-slate-300 space-y-3">
+          <div className="flex items-start gap-3">
+            <Lock className="h-4 w-4 text-orange-400 shrink-0 mt-0.5" />
+            <p>
+              In accordance with Hardware World enterprise security rules, <strong>public self-registration is disabled</strong>.
+            </p>
+          </div>
+          <div className="flex items-start gap-3">
+            <UserCheck className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <p>
+              Only the <strong>System Administrator</strong> can create new employee credentials, assign role privileges, and authorize department access.
+            </p>
+          </div>
+          <div className="flex items-start gap-3">
+            <Building2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+            <p>
+              Once your account has been provisioned, your administrator will supply your login name, assigned department, and initial password.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-8 space-y-3">
+          <Link href="/auth/sign-in" className="block w-full">
+            <Button className="h-12 w-full rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 text-sm font-bold text-white shadow-lg shadow-orange-600/30 hover:from-orange-500 hover:to-amber-500">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Return to Sign In Portal
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
 }
