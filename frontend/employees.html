@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employees - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Staff Directory</h1>
+        <p class="text-muted-foreground mt-1">Manage employee records and role assignments.</p>
+      </div>
+      <div id="add-dialog-container"></div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <div class="card">
+      <div id="table-container">
+        <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getEmployees, getOrganisation } from './assets/js/queries.js';
+    import { createEmployee } from './assets/js/actions.js';
+    import { createDataTable, createFormDialog, createDataNotice } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const [employees, org] = await Promise.all([
+        getEmployees(),
+        getOrganisation()
+      ]);
+      
+      // Initialize Add Dialog (if Admin)
+      if (user.role === 'Admin') {
+        const branchOptions = (org.branches || []).map(b => `<option value="${b.branchid}">${b.branchname}</option>`).join('');
+        const deptOptions = (org.departments || []).map(d => `<option value="${d.departmentid}">${d.departmentname}</option>`).join('');
+        const supOptions = (employees || []).map(e => `<option value="${e.employeeid}">${e.name}</option>`).join('');
+
+        // The form fields HTML (includes dynamic role fields container)
+        const fieldsHtml = `
+          <div class="grid gap-3 sm:grid-cols-2 max-h-[60vh] overflow-y-auto px-2">
+            <div><label class="label">Full Name</label><input type="text" name="name" class="input" required placeholder="e.g. Samuel Okello"></div>
+            <div><label class="label">Email (Login)</label><input type="email" name="email" class="input" required placeholder="samuel@hardwareworld.com"></div>
+            <div><label class="label">Initial Password</label><input type="password" name="password" class="input" required placeholder="At least 6 chars"></div>
+            <div><label class="label">Phone</label><input type="tel" name="phone" class="input" placeholder="+256..."></div>
+            <div><label class="label">Date Hired</label><input type="date" name="datehired" class="input"></div>
+            <div><label class="label">Salary (UGX)</label><input type="number" name="salary" class="input" required min="0"></div>
+            
+            <div>
+              <label class="label">Role (RBAC)</label>
+              <select name="roletype" id="role-select" class="input" required>
+                <option value="Cashier">Cashier</option>
+                <option value="Procurement Officer">Procurement Officer</option>
+                <option value="Accountant">Accountant</option>
+                <option value="HR Staff">HR Staff</option>
+                <option value="Branch Manager">Branch Manager</option>
+              </select>
+            </div>
+            
+            <div><label class="label">Branch</label><select name="branchid" class="input" required><option value="">Select...</option>${branchOptions}</select></div>
+            <div><label class="label">Department (ABAC)</label><select name="departmentid" class="input" required><option value="">Select...</option>${deptOptions}</select></div>
+            <div><label class="label">Supervisor</label><select name="supervisorid" class="input"><option value="">None</option>${supOptions}</select></div>
+          </div>
+
+          <div class="rounded-2xl border border-border bg-muted/40 p-4 text-sm mt-4">
+            <div class="flex items-center gap-2 mb-3 text-xs font-bold uppercase tracking-wider text-amber-500">
+              <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+              <span>Role Subtype Attributes</span>
+            </div>
+            <div id="subtype-fields">
+              <!-- Dynamically injected based on role -->
+            </div>
+          </div>
+        `;
+
+        const dialogHtml = createFormDialog({
+          title: 'Provision New Employee',
+          description: 'Only Administrators can create new accounts and assign credentials.',
+          triggerHtml: `<button class="btn btn-primary"><i data-lucide="user-plus" class="w-4 h-4"></i> Add Employee</button>`,
+          actionFn: createEmployee,
+          fieldsHtml: fieldsHtml
+        });
+        document.getElementById('add-dialog-container').appendChild(dialogHtml);
+        
+        // Handle dynamic role fields logic
+        const roleSelect = document.getElementById('role-select');
+        const subtypeContainer = document.getElementById('subtype-fields');
+        
+        const renderSubtype = () => {
+          const role = roleSelect.value;
+          if (role === 'Cashier') subtypeContainer.innerHTML = `<label class="label">POS Terminal ID</label><input type="text" name="pos_terminalid" class="input" required placeholder="e.g. POS-01">`;
+          else if (role === 'Procurement Officer') subtypeContainer.innerHTML = `<label class="label">Approval Limit (UGX)</label><input type="number" name="approvallimit" class="input" required min="0">`;
+          else if (role === 'Accountant') subtypeContainer.innerHTML = `<label class="label">CPA Cert Number</label><input type="text" name="certificationnumber" class="input" required>`;
+          else if (role === 'HR Staff') subtypeContainer.innerHTML = `<label class="label">HR Designation</label><input type="text" name="hr_role" class="input" required>`;
+          else if (role === 'Branch Manager') subtypeContainer.innerHTML = `<label class="label">Management Level</label><input type="text" name="managementlevel" class="input" required>`;
+        };
+        
+        roleSelect.addEventListener('change', renderSubtype);
+        renderSubtype(); // Initial render
+        lucide.createIcons();
+      }
+
+      const columns = [
+        { header: 'ID', accessorKey: 'employeeid' },
+        { 
+          header: 'Name', 
+          cell: (row) => `
+            <div class="font-medium">${row.name}</div>
+            <div class="text-xs text-muted-foreground">${row.email || ''}</div>
+          `
+        },
+        { 
+          header: 'Role', 
+          cell: (row) => `<span class="badge bg-secondary text-secondary-foreground">${row.roletype}</span>`
+        },
+        { 
+          header: 'Branch', 
+          cell: (row) => row.branch ? row.branch.branchname : row.branchid 
+        },
+        { 
+          header: 'Department', 
+          cell: (row) => row.department ? row.department.departmentname : row.departmentid 
+        },
+        { 
+          header: 'Hired', 
+          cell: (row) => new Date(row.datehired).toLocaleDateString()
+        }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(employees, columns, 'name'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>

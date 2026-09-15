@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Categories - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Categories</h1>
+        <p class="text-muted-foreground mt-1">Manage product classification and grouping.</p>
+      </div>
+      <div id="add-dialog-container"></div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <div class="card">
+      <div id="table-container">
+        <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getCategories } from './assets/js/queries.js';
+    import { createCategory } from './assets/js/actions.js';
+    import { createDataTable, createFormDialog, createDataNotice } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    // Initialize Add Dialog (if authorized to insert)
+    if (['Admin', 'Procurement Officer'].includes(user.role)) {
+      const dialogHtml = createFormDialog({
+        title: 'Create New Category',
+        triggerHtml: `<button class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Add Category</button>`,
+        actionFn: createCategory,
+        fieldsHtml: `
+          <label class="label">Category Name</label>
+          <input type="text" name="categoryname" class="input mb-4" required placeholder="e.g. Hand Tools">
+          
+          <label class="label">Description</label>
+          <textarea name="description" class="input h-24 py-2 resize-none" placeholder="Details about this category..."></textarea>
+        `
+      });
+      document.getElementById('add-dialog-container').appendChild(dialogHtml);
+      lucide.createIcons();
+    }
+
+    // Fetch and render data
+    try {
+      const categories = await getCategories();
+      
+      const columns = [
+        { header: 'ID', accessorKey: 'categoryid' },
+        { header: 'Name', accessorKey: 'categoryname' },
+        { header: 'Description', accessorKey: 'description' }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(categories, columns, 'categoryname'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>

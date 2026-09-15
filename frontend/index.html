@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <!-- Shell injected by JS -->
+  
+  <div class="space-y-6">
+    <!-- Hero Header -->
+    <div class="relative overflow-hidden rounded-2xl gradient-hero p-8 border border-slate-800 shadow-xl">
+      <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+      
+      <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="badge bg-white/20 text-white backdrop-blur-md" id="user-role-badge">Loading...</span>
+            <span class="badge bg-amber-500/20 text-amber-300 backdrop-blur-md" id="user-dept-badge">Loading...</span>
+          </div>
+          <h1 class="text-3xl md:text-4xl font-black tracking-tight text-white mb-2" id="welcome-msg">Welcome back</h1>
+          <p class="text-slate-300 max-w-xl">
+            Hardware World Enterprise Management System. Manage inventory, process sales, and monitor branch performance.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4" id="kpis">
+      <!-- Injected by JS -->
+      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
+      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
+      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
+      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-lg font-bold">7-Day Performance</h2>
+          <p class="text-sm text-muted-foreground">Rolling window overview</p>
+        </div>
+      </div>
+      <div id="chart-container">
+        <!-- Chart injected by JS -->
+        <div class="h-[300px] bg-muted animate-pulse rounded-lg mt-4 w-full"></div>
+      </div>
+    </div>
+
+    <div class="grid gap-6 md:grid-cols-2">
+      <!-- Recent Sales -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">Recent Sales</h2>
+          <a href="/sales.html" class="btn btn-sm btn-ghost">View All</a>
+        </div>
+        <div id="recent-sales">
+          <div class="animate-pulse h-32 bg-muted rounded w-full"></div>
+        </div>
+      </div>
+
+      <!-- Recent POs -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">Recent Purchase Orders</h2>
+          <a href="/purchase-orders.html" class="btn btn-sm btn-ghost">View All</a>
+        </div>
+        <div id="recent-pos">
+          <div class="animate-pulse h-32 bg-muted rounded w-full"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Only: Department Hub -->
+    <div id="admin-dept-hub" class="hidden">
+      <div class="flex items-center gap-2 mb-4">
+        <i data-lucide="shield" class="w-5 h-5 text-primary"></i>
+        <h2 class="text-lg font-bold">Admin Hub (ABAC Bypass)</h2>
+      </div>
+      <div class="grid gap-4 md:grid-cols-3" id="admin-depts">
+        <!-- Injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- App logic -->
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getDashboard, getOrganisation } from './assets/js/queries.js';
+    import { createContinuousStatGraph, formatMoney } from './assets/js/components.js';
+
+    // 1. Auth & Layout
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    // 2. Hydrate Header
+    document.getElementById('user-role-badge').innerText = user.role;
+    document.getElementById('user-dept-badge').innerText = user.department?.departmentname || 'No Dept';
+    document.getElementById('welcome-msg').innerText = `Welcome back, ${user.name.split(' ')[0]}`;
+
+    // 3. Fetch Data
+    try {
+      const data = await getDashboard();
+
+      // Render KPIs
+      const kpisHtml = `
+        <div class="card p-6 hover-lift border-l-4 border-l-primary">
+          <div class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 class="text-sm font-medium">Sales Today</h3>
+            <i data-lucide="banknote" class="w-4 h-4 text-muted-foreground"></i>
+          </div>
+          <div class="text-2xl font-bold">${formatMoney(data.salesToday)}</div>
+        </div>
+        <div class="card p-6 hover-lift border-l-4 border-l-primary">
+          <div class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 class="text-sm font-medium">Transactions</h3>
+            <i data-lucide="shopping-cart" class="w-4 h-4 text-muted-foreground"></i>
+          </div>
+          <div class="text-2xl font-bold">${data.txCount}</div>
+        </div>
+        <div class="card p-6 hover-lift border-l-4 border-l-primary">
+          <div class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 class="text-sm font-medium">Pending POs</h3>
+            <i data-lucide="file-text" class="w-4 h-4 text-muted-foreground"></i>
+          </div>
+          <div class="text-2xl font-bold">${data.recentPOs.filter(p => p.status === 'Pending').length}</div>
+        </div>
+        <div class="card p-6 hover-lift border-l-4 border-l-primary">
+          <div class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 class="text-sm font-medium">Active Staff</h3>
+            <i data-lucide="users" class="w-4 h-4 text-muted-foreground"></i>
+          </div>
+          <div class="text-2xl font-bold">${data.staffCount}</div>
+        </div>
+      `;
+      document.getElementById('kpis').innerHTML = kpisHtml;
+
+      // Render Chart (Simulate 7 days from recent sales for the chart)
+      const chartData = [
+        { label: '6 days ago', value: 0 }, { label: '5 days ago', value: 0 },
+        { label: '4 days ago', value: 0 }, { label: '3 days ago', value: 0 },
+        { label: '2 days ago', value: 0 }, { label: 'Yesterday', value: 0 },
+        { label: 'Today', value: data.salesToday || 1 } 
+      ];
+      const chartContainer = document.getElementById('chart-container');
+      chartContainer.innerHTML = '';
+      chartContainer.appendChild(createContinuousStatGraph(chartData));
+
+      // Render Recent Sales
+      const salesList = data.sales.slice(0, 5).map(s => `
+        <div class="flex items-center justify-between py-2 border-b border-border last:border-0">
+          <div>
+            <div class="font-medium">Sale #${s.saleid}</div>
+            <div class="text-xs text-muted-foreground">${new Date(s.saledate).toLocaleDateString()}</div>
+          </div>
+          <div class="font-bold">${formatMoney(s.totalamount)}</div>
+        </div>
+      `).join('') || '<div class="text-muted-foreground text-sm">No recent sales.</div>';
+      document.getElementById('recent-sales').innerHTML = salesList;
+
+      // Render Recent POs
+      const posList = data.recentPOs.slice(0, 5).map(po => `
+        <div class="flex items-center justify-between py-2 border-b border-border last:border-0">
+          <div>
+            <div class="font-medium">PO #${po.poid}</div>
+            <div class="text-xs text-muted-foreground">Status: ${po.status}</div>
+          </div>
+          <div class="font-bold">${formatMoney(po.totalamount)}</div>
+        </div>
+      `).join('') || '<div class="text-muted-foreground text-sm">No recent POs.</div>';
+      document.getElementById('recent-pos').innerHTML = posList;
+
+      // Render Admin Hub if Admin
+      if (user.role === 'Admin') {
+        document.getElementById('admin-dept-hub').classList.remove('hidden');
+        const orgData = await getOrganisation();
+        const deptsHtml = orgData.departments.map(d => `
+          <div class="card flex flex-col p-4 bg-muted/50 border-dashed">
+            <div class="font-medium">${d.departmentname}</div>
+            <div class="text-xs text-muted-foreground mt-1 mb-3">Branch ID: ${d.branchid}</div>
+            <a href="/index.html" class="btn btn-sm btn-outline mt-auto w-fit">Access Portal</a>
+          </div>
+        `).join('');
+        document.getElementById('admin-depts').innerHTML = deptsHtml;
+      }
+
+      lucide.createIcons();
+    } catch (e) {
+      console.error(e);
+      document.getElementById('kpis').innerHTML = '<div class="col-span-full text-destructive p-4 border border-destructive rounded-lg">Failed to load dashboard data.</div>';
+    }
+  </script>
+</body>
+</html>

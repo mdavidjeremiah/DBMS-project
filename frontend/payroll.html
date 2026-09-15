@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payroll - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Payroll Management</h1>
+        <p class="text-muted-foreground mt-1">Manage employee compensation and payment cycles.</p>
+      </div>
+      <div id="add-dialog-container"></div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <div class="card">
+      <div id="table-container">
+        <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getPayroll, getEmployees } from './assets/js/queries.js';
+    import { createPayroll } from './assets/js/actions.js';
+    import { createDataTable, createFormDialog, createDataNotice, formatMoney } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const [payroll, employees] = await Promise.all([
+        getPayroll(),
+        getEmployees()
+      ]);
+      
+      // Initialize Add Dialog (if HR or Admin)
+      if (['Admin', 'HR Staff'].includes(user.role)) {
+        const empOptions = (employees || []).map(e => `<option value="${e.employeeid}">${e.name} (Base: ${formatMoney(e.salary)})</option>`).join('');
+
+        const dialogHtml = createFormDialog({
+          title: 'Process Payroll Entry',
+          triggerHtml: `<button class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Run Payroll</button>`,
+          actionFn: createPayroll,
+          fieldsHtml: `
+            <div class="grid gap-4 md:grid-cols-2 mb-4">
+              <div>
+                <label class="label">Employee</label>
+                <select name="employeeid" class="input" required>
+                  <option value="">Select employee...</option>
+                  ${empOptions}
+                </select>
+              </div>
+              <div>
+                <label class="label">Amount Paid (UGX)</label>
+                <input type="number" name="amount" class="input" required min="0">
+              </div>
+              <div>
+                <label class="label">Payment Date</label>
+                <input type="date" name="paymentdate" class="input" required value="${new Date().toISOString().split('T')[0]}">
+              </div>
+              <div>
+                <label class="label">Pay Period Start</label>
+                <input type="date" name="payperiodstart" class="input" required>
+              </div>
+              <div>
+                <label class="label">Pay Period End</label>
+                <input type="date" name="payperiodend" class="input" required>
+              </div>
+            </div>
+            <input type="hidden" name="processedby_id" value="${user.id}">
+          `
+        });
+        document.getElementById('add-dialog-container').appendChild(dialogHtml);
+        lucide.createIcons();
+      }
+
+      const columns = [
+        { header: 'ID', accessorKey: 'payrollid' },
+        { 
+          header: 'Employee', 
+          cell: (row) => row.employee ? row.employee.name : `ID: ${row.employeeid}` 
+        },
+        { 
+          header: 'Amount Paid', 
+          cell: (row) => `<span class="font-bold text-emerald-600 dark:text-emerald-400">${formatMoney(row.amount)}</span>`
+        },
+        { 
+          header: 'Payment Date', 
+          cell: (row) => new Date(row.paymentdate).toLocaleDateString()
+        },
+        { 
+          header: 'Period', 
+          cell: (row) => `${new Date(row.payperiodstart).toLocaleDateString()} - ${new Date(row.payperiodend).toLocaleDateString()}`
+        },
+        { 
+          header: 'Processed By', 
+          cell: (row) => row.processedby ? row.processedby.name : `ID: ${row.processedby_id}` 
+        }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(payroll, columns, 'payrollid'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>

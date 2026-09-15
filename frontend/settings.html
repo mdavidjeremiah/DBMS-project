@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6 max-w-4xl">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tight">Organization Settings</h1>
+      <p class="text-muted-foreground mt-1">Manage store preferences, access control, and team members.</p>
+    </div>
+
+    <!-- Security Panel -->
+    <div class="card p-0 overflow-hidden border-orange-500/20">
+      <div class="bg-gradient-to-r from-orange-500/10 to-transparent p-6 border-b border-orange-500/10">
+        <div class="flex items-center gap-3">
+          <div class="p-2 bg-orange-500/20 rounded-lg text-orange-500">
+            <i data-lucide="shield-check" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold">ABAC & RBAC Enforcement Active</h2>
+            <p class="text-sm text-muted-foreground mt-1">System is currently operating under strict departmental scoping and role-based policies.</p>
+          </div>
+        </div>
+      </div>
+      <div class="p-6 grid sm:grid-cols-2 gap-4 text-sm">
+        <div class="flex items-start gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-500 mt-0.5"></i>
+          <div>
+            <strong class="block">PostgreSQL Row-Level Security</strong>
+            <span class="text-muted-foreground">All SELECT, UPDATE, and DELETE operations are filtered at the database engine level.</span>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-500 mt-0.5"></i>
+          <div>
+            <strong class="block">FastAPI Dependency Injection</strong>
+            <span class="text-muted-foreground">JWT tokens are validated and roles extracted before reaching route handlers.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team Members -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold">Team Members</h2>
+        <a href="/employees.html" class="btn btn-sm btn-outline">Manage Employees</a>
+      </div>
+      <div id="team-list" class="divide-y divide-border border border-border rounded-lg">
+        <div class="animate-pulse h-16 bg-muted"></div>
+        <div class="animate-pulse h-16 bg-muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getEmployees } from './assets/js/queries.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const employees = await getEmployees();
+      
+      const teamList = document.getElementById('team-list');
+      teamList.innerHTML = '';
+      
+      (employees || []).slice(0, 5).forEach(emp => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-4';
+        
+        // Colors based on role
+        let roleClass = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
+        if (emp.roletype === 'Admin') roleClass = 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300';
+        else if (emp.roletype === 'Cashier') roleClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+
+        div.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+              ${emp.name.charAt(0)}
+            </div>
+            <div>
+              <div class="font-medium">${emp.name}</div>
+              <div class="text-xs text-muted-foreground">${emp.email || 'No email'}</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="badge ${roleClass}">${emp.roletype}</span>
+            <div class="text-xs text-muted-foreground mt-1">ID: ${emp.employeeid}</div>
+          </div>
+        `;
+        teamList.appendChild(div);
+      });
+      
+      if (employees.length === 0) {
+        teamList.innerHTML = '<div class="p-4 text-center text-muted-foreground">No employees found.</div>';
+      }
+
+      lucide.createIcons();
+    } catch (e) {
+      document.getElementById('team-list').innerHTML = '<div class="p-4 text-destructive">Failed to load team members.</div>';
+    }
+  </script>
+</body>
+</html>

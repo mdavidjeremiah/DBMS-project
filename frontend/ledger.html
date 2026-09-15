@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>General Ledger - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">General Ledger</h1>
+        <p class="text-muted-foreground mt-1">Immutable record of all financial transactions.</p>
+      </div>
+      <div id="add-dialog-container"></div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <div class="card">
+      <div id="table-container">
+        <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getLedger, getSales, getPayroll } from './assets/js/queries.js';
+    import { createLedgerEntry } from './assets/js/actions.js';
+    import { createDataTable, createFormDialog, createDataNotice, formatMoney } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const [ledger, sales, payroll] = await Promise.all([
+        getLedger(),
+        getSales().catch(() => []), // May be RLS blocked for accountant, handle gracefully
+        getPayroll().catch(() => [])
+      ]);
+      
+      // Initialize Add Dialog (if Admin or Accountant)
+      if (['Admin', 'Accountant'].includes(user.role)) {
+        const saleOptions = (sales || []).map(s => `<option value="${s.saleid}">Sale #${s.saleid} (${formatMoney(s.totalamount)})</option>`).join('');
+        const payrollOptions = (payroll || []).map(p => `<option value="${p.payrollid}">Payroll #${p.payrollid} (${formatMoney(p.amount)})</option>`).join('');
+
+        const fieldsHtml = `
+          <div class="grid gap-4 md:grid-cols-2 mb-4">
+            <div>
+              <label class="label">Source Type</label>
+              <select name="sourcetype" id="source-type" class="input" required>
+                <option value="SALE">Sale (Credit)</option>
+                <option value="PAYROLL">Payroll (Debit)</option>
+              </select>
+            </div>
+            <div id="sale-select-container">
+              <label class="label">Reference Sale</label>
+              <select name="saleid" id="sale-select" class="input">
+                <option value="">Select...</option>
+                ${saleOptions}
+              </select>
+            </div>
+            <div id="payroll-select-container" class="hidden">
+              <label class="label">Reference Payroll</label>
+              <select name="payrollid" id="payroll-select" class="input">
+                <option value="">Select...</option>
+                ${payrollOptions}
+              </select>
+            </div>
+          </div>
+          <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 mb-4 text-amber-600 text-sm flex gap-2">
+            <i data-lucide="info" class="w-5 h-5 shrink-0"></i>
+            <div>Ledger entries are immutable. Verify the reference ID carefully. Automated entry creation is recommended for production.</div>
+          </div>
+        `;
+
+        const dialogHtml = createFormDialog({
+          title: 'Manual Ledger Entry',
+          triggerHtml: `<button class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Add Entry</button>`,
+          actionFn: createLedgerEntry,
+          fieldsHtml: fieldsHtml
+        });
+        document.getElementById('add-dialog-container').appendChild(dialogHtml);
+        lucide.createIcons();
+
+        // Toggle logic for source type
+        const typeSelect = document.getElementById('source-type');
+        const saleCont = document.getElementById('sale-select-container');
+        const payrollCont = document.getElementById('payroll-select-container');
+        
+        typeSelect.addEventListener('change', () => {
+          if (typeSelect.value === 'SALE') {
+            saleCont.classList.remove('hidden');
+            document.getElementById('sale-select').required = true;
+            payrollCont.classList.add('hidden');
+            document.getElementById('payroll-select').required = false;
+            document.getElementById('payroll-select').value = '';
+          } else {
+            saleCont.classList.add('hidden');
+            document.getElementById('sale-select').required = false;
+            document.getElementById('sale-select').value = '';
+            payrollCont.classList.remove('hidden');
+            document.getElementById('payroll-select').required = true;
+          }
+        });
+      }
+
+      const columns = [
+        { header: 'Entry ID', accessorKey: 'entryid' },
+        { 
+          header: 'Date', 
+          cell: (row) => new Date(row.entrydate).toLocaleString()
+        },
+        { 
+          header: 'Type', 
+          cell: (row) => {
+            const isDebit = row.sourcetype === 'PAYROLL';
+            return `<span class="badge ${isDebit ? 'badge-secondary' : 'badge-primary'}">${row.sourcetype}</span>`;
+          }
+        },
+        { 
+          header: 'Reference', 
+          cell: (row) => {
+            if (row.sourcetype === 'SALE') return `Sale #${row.saleid}`;
+            if (row.sourcetype === 'PAYROLL') return `Payroll #${row.payrollid}`;
+            return 'Manual/Unknown';
+          }
+        }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(ledger, columns, 'entryid'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>

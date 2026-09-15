@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales & POS - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Point of Sale</h1>
+        <p class="text-muted-foreground mt-1">Process transactions and view sales history.</p>
+      </div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <!-- POS UI -->
+    <div id="pos-container" class="hidden">
+      <form id="pos-form" class="grid gap-5 xl:grid-cols-[1.5fr_0.8fr]">
+        <section class="grid gap-4 rounded-xl border border-border bg-card p-4">
+          <div class="flex gap-2">
+            <select id="pos-product-select" class="flex-1 input">
+              <option value="">Select a product...</option>
+              <!-- Options injected by JS -->
+            </select>
+            <button type="button" id="pos-add-btn" class="btn btn-outline">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add
+            </button>
+          </div>
+          
+          <div id="pos-lines" class="divide-y divide-border">
+            <p class="py-12 text-center text-sm text-muted-foreground" id="pos-empty-msg">Add products to begin a sale.</p>
+          </div>
+        </section>
+
+        <aside class="grid content-start gap-4 rounded-xl border border-border bg-card p-4">
+          <div>
+            <h2 class="font-medium">Checkout</h2>
+            <p class="text-sm text-muted-foreground">Sale and sale-item records are saved together.</p>
+          </div>
+
+          <label class="label">Cashier
+            <select name="employeeid" class="input mt-1" required>
+              <option value="">Select cashier...</option>
+              <!-- Options injected -->
+            </select>
+          </label>
+
+          <label class="label">Branch
+            <select name="branchid" class="input mt-1" required>
+              <option value="">Select branch...</option>
+              <!-- Options injected -->
+            </select>
+          </label>
+
+          <div class="border-t border-border pt-4">
+            <p class="mb-2 text-sm font-medium">Customer (optional)</p>
+            <div class="grid gap-2">
+              <input name="customername" class="input" placeholder="Customer name" />
+              <input name="customerphone" class="input" placeholder="Phone number" />
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between border-t border-border pt-4">
+            <span class="font-medium">Total</span>
+            <strong class="text-xl" id="pos-total">UGX 0</strong>
+          </div>
+
+          <button type="submit" id="pos-submit-btn" class="btn btn-primary w-full py-3 mt-2" disabled>
+            Complete Sale
+          </button>
+        </aside>
+      </form>
+    </div>
+
+    <!-- Sales History Table -->
+    <div class="mt-12">
+      <h2 class="text-xl font-bold mb-4">Sales History</h2>
+      <div class="card">
+        <div id="table-container">
+          <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getSales, getProducts, getEmployees, getOrganisation } from './assets/js/queries.js';
+    import { createSale, handleSubmit } from './assets/js/actions.js';
+    import { createDataTable, createDataNotice, formatMoney } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const [sales, products, employees, org] = await Promise.all([
+        getSales(),
+        getProducts(),
+        getEmployees(),
+        getOrganisation()
+      ]);
+
+      // --- POS Logic ---
+      if (['Cashier', 'Admin'].includes(user.role)) {
+        document.getElementById('pos-container').classList.remove('hidden');
+        
+        // Populate Selects
+        const pSelect = document.getElementById('pos-product-select');
+        (products || []).forEach(p => {
+          pSelect.innerHTML += `<option value="${p.itemid}" data-price="${p.unitprice}" data-name="${p.itemname}">${p.itemname} · ${formatMoney(p.unitprice)}</option>`;
+        });
+
+        const empSelect = document.querySelector('select[name="employeeid"]');
+        (employees || []).filter(e => e.roletype === 'Cashier' || e.roletype === 'Admin').forEach(e => {
+          empSelect.innerHTML += `<option value="${e.employeeid}">${e.name}</option>`;
+        });
+        // Auto-select current user if cashier
+        if (user.role === 'Cashier') empSelect.value = user.id;
+
+        const bSelect = document.querySelector('select[name="branchid"]');
+        (org.branches || []).forEach(b => {
+          bSelect.innerHTML += `<option value="${b.branchid}">${b.branchname}</option>`;
+        });
+        if (user.department?.branchid) bSelect.value = user.department.branchid;
+
+        // Cart State
+        let cart = [];
+        const linesContainer = document.getElementById('pos-lines');
+        const emptyMsg = document.getElementById('pos-empty-msg');
+        const totalEl = document.getElementById('pos-total');
+        const submitBtn = document.getElementById('pos-submit-btn');
+
+        function renderCart() {
+          if (cart.length === 0) {
+            linesContainer.innerHTML = '';
+            linesContainer.appendChild(emptyMsg);
+            emptyMsg.style.display = 'block';
+            totalEl.innerText = formatMoney(0);
+            submitBtn.disabled = true;
+            return;
+          }
+
+          emptyMsg.style.display = 'none';
+          linesContainer.innerHTML = '';
+          let total = 0;
+
+          cart.forEach((item, index) => {
+            total += item.price * item.qty;
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-[1fr_auto_auto] items-center gap-3 py-3 border-b border-border last:border-0';
+            row.innerHTML = `
+              <div>
+                <p class="font-medium">${item.name}</p>
+                <p class="text-sm text-muted-foreground">${formatMoney(item.price)} each</p>
+                <input type="hidden" name="itemid" value="${item.id}">
+                <input type="hidden" name="unitprice" value="${item.price}">
+              </div>
+              <div class="flex items-center gap-1">
+                <button type="button" class="btn btn-sm btn-outline qty-minus" data-idx="${index}">
+                  <i data-lucide="minus" class="w-3 h-3"></i>
+                </button>
+                <input type="number" name="quantity" class="input w-12 text-center h-8 px-1 qty-input" min="1" value="${item.qty}" data-idx="${index}">
+                <button type="button" class="btn btn-sm btn-outline qty-plus" data-idx="${index}">
+                  <i data-lucide="plus" class="w-3 h-3"></i>
+                </button>
+              </div>
+              <button type="button" class="btn btn-sm btn-ghost text-destructive hover:bg-destructive/10 remove-item" data-idx="${index}">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            `;
+            linesContainer.appendChild(row);
+          });
+
+          totalEl.innerText = formatMoney(total);
+          submitBtn.disabled = false;
+          lucide.createIcons();
+
+          // Attach listeners to newly created buttons
+          document.querySelectorAll('.qty-minus').forEach(b => b.addEventListener('click', (e) => updateQty(e.currentTarget.dataset.idx, -1)));
+          document.querySelectorAll('.qty-plus').forEach(b => b.addEventListener('click', (e) => updateQty(e.currentTarget.dataset.idx, 1)));
+          document.querySelectorAll('.qty-input').forEach(i => i.addEventListener('change', (e) => setQty(e.currentTarget.dataset.idx, parseInt(e.target.value) || 1)));
+          document.querySelectorAll('.remove-item').forEach(b => b.addEventListener('click', (e) => removeLine(e.currentTarget.dataset.idx)));
+        }
+
+        function updateQty(idx, delta) {
+          cart[idx].qty += delta;
+          if (cart[idx].qty < 1) cart.splice(idx, 1);
+          renderCart();
+        }
+
+        function setQty(idx, val) {
+          if (val < 1) cart.splice(idx, 1);
+          else cart[idx].qty = val;
+          renderCart();
+        }
+
+        function removeLine(idx) {
+          cart.splice(idx, 1);
+          renderCart();
+        }
+
+        document.getElementById('pos-add-btn').addEventListener('click', () => {
+          const opt = pSelect.options[pSelect.selectedIndex];
+          if (!opt.value) return;
+          
+          const id = opt.value;
+          const existing = cart.find(c => c.id === id);
+          if (existing) {
+            existing.qty += 1;
+          } else {
+            cart.push({
+              id: id,
+              name: opt.dataset.name,
+              price: parseFloat(opt.dataset.price),
+              qty: 1
+            });
+          }
+          pSelect.value = '';
+          renderCart();
+        });
+
+        document.getElementById('pos-form').addEventListener('submit', (e) => handleSubmit(e, createSale));
+      }
+
+      // --- History Table ---
+      const columns = [
+        { header: 'Sale ID', accessorKey: 'saleid' },
+        { 
+          header: 'Date', 
+          cell: (row) => new Date(row.saledate).toLocaleDateString()
+        },
+        { 
+          header: 'Branch', 
+          cell: (row) => row.branch ? row.branch.branchname : `ID: ${row.branchid}` 
+        },
+        { 
+          header: 'Cashier', 
+          cell: (row) => row.employee ? row.employee.name : `ID: ${row.employeeid}` 
+        },
+        { 
+          header: 'Total Amount', 
+          cell: (row) => formatMoney(row.totalamount)
+        }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(sales, columns, 'saleid'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>
