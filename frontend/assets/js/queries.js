@@ -42,9 +42,9 @@ export async function getOrganisation() {
 
 export async function getDashboard() {
   const [sales, pos, staff] = await Promise.all([
-    apiRequest('/sales/recent'),
-    apiRequest('/purchase-orders/recent'),
-    apiRequest('/employees')
+    apiRequest('/sales').catch(() => []),
+    apiRequest('/purchase-orders').catch(() => []),
+    apiRequest('/employees').catch(() => [])
   ]);
   return {
     sales: sales || [],
