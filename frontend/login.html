@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hardware World - Sign In</title>
-  <link rel="stylesheet" href="./assets/css/style.css">
+  <link rel="stylesheet" href="./assets/css/tailwind.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="dark bg-slate-950 text-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -38,13 +38,13 @@
     </div>
 
     <!-- Login Form Side -->
-    <div class="p-8 md:p-12 flex flex-col justify-center">
-      <div class="mb-8">
+    <div class="p-8 md:p-12 flex flex-col items-center justify-center text-center">
+      <div class="mb-8 w-full max-w-md">
         <h2 class="text-2xl font-bold text-white mb-2">Welcome Back</h2>
         <p class="text-slate-400">Sign in to your staff portal account.</p>
       </div>
 
-      <form id="login-form" class="space-y-5">
+      <form id="login-form" class="w-full max-w-md space-y-5 text-left">
         <div>
           <label class="label text-slate-300">Email Address</label>
           <div class="relative">
@@ -69,12 +69,12 @@
         </button>
       </form>
 
-      <div class="mt-8 text-center text-sm text-slate-500">
-        Need an account? <a href="/sign-up.html" class="text-orange-500 hover:text-orange-400 font-medium">Contact Administrator</a>
+      <div class="mt-8 w-full max-w-md text-center text-sm text-slate-500">
+        Create an account <a href="/sign-up.html" class="text-orange-500 hover:text-orange-400 font-medium">Contact Administrator</a>
       </div>
 
-      <!-- Demo Accounts (For easy testing) -->
-      <div class="mt-8 pt-8 border-t border-slate-800">
+       <!-- Demo Accounts (For easy testing) 
+      <div class="mt-8 w-full max-w-md border-t border-slate-800 pt-8">
         <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3 text-center">Fast-Fill Demo Accounts</p>
         <div class="grid grid-cols-2 gap-2">
           <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="akena@hw.local" data-pass="admin123">Admin</button>
@@ -82,7 +82,7 @@
           <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="john@hw.local" data-pass="proc123">Procurement</button>
           <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="grace@hw.local" data-pass="hr123">HR</button>
         </div>
-      </div>
+      </div> -->
 
     </div>
   </div>
@@ -136,7 +136,7 @@
         formData.append('username', email); // FastAPI OAuth2 uses 'username' field
         formData.append('password', password);
 
-        const data = await apiRequest('/token', {
+        const data = await apiRequest('/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: formData.toString()
