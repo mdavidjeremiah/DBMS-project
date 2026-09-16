@@ -1,6 +1,9 @@
+import os
 from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from datetime import timedelta, datetime
@@ -21,6 +24,8 @@ except Exception as err:
 
 app = FastAPI(title="Hardware World API")
 
+frontend_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend"))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
@@ -31,7 +36,8 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Hardware World API"}
+    frontend_index = os.path.join(frontend_dir, "index.html")
+    return FileResponse(frontend_index)
 
 @app.get("/departments/public")
 def get_public_departments(db: Session = Depends(get_db)):
@@ -301,3 +307,6 @@ def get_ledger(db: Session = Depends(get_db), current_user: models.Employee = De
 def create_ledger(payload: schemas.LedgerCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
     entry = models.LedgerEntry(**payload.model_dump()); db.add(entry); db.commit(); db.refresh(entry); return entry
+
+
+app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

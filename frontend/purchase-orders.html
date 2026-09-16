@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchase Orders - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Purchase Orders</h1>
+        <p class="text-muted-foreground mt-1">Manage incoming stock and supplier orders.</p>
+      </div>
+      <div id="add-dialog-container"></div>
+    </div>
+    
+    <div id="notice-container"></div>
+
+    <div class="card">
+      <div id="table-container">
+        <div class="animate-pulse h-64 bg-muted rounded w-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { getPurchaseOrders, getSuppliers, getOrganisation } from './assets/js/queries.js';
+    import { createPurchaseOrder } from './assets/js/actions.js';
+    import { createDataTable, createFormDialog, createDataNotice, formatMoney } from './assets/js/components.js';
+
+    const user = await requireAuth();
+    if (!user) { throw new Error("Auth failed"); }
+    initShell(user);
+
+    try {
+      const [pos, suppliers, org] = await Promise.all([
+        getPurchaseOrders(),
+        getSuppliers(),
+        getOrganisation()
+      ]);
+      
+      // Initialize Add Dialog (if authorized)
+      if (['Admin', 'Procurement Officer', 'Branch Manager'].includes(user.role)) {
+        const supOptions = (suppliers || []).map(s => `<option value="${s.supplierid}">${s.suppliername}</option>`).join('');
+        const branchOptions = (org.branches || []).map(b => `<option value="${b.branchid}">${b.branchname}</option>`).join('');
+        
+        const dialogHtml = createFormDialog({
+          title: 'Create Purchase Order',
+          triggerHtml: `<button class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Create PO</button>`,
+          actionFn: createPurchaseOrder,
+          fieldsHtml: `
+            <div class="grid gap-4 md:grid-cols-2 mb-4">
+              <div>
+                <label class="label">Supplier</label>
+                <select name="supplierid" class="input" required>
+                  <option value="">Select supplier...</option>
+                  ${supOptions}
+                </select>
+              </div>
+              <div>
+                <label class="label">Receiving Branch</label>
+                <select name="branchid" class="input" required>
+                  <option value="">Select branch...</option>
+                  ${branchOptions}
+                </select>
+              </div>
+              <div>
+                <label class="label">Total Amount (UGX)</label>
+                <input type="number" name="totalamount" class="input" required min="0">
+              </div>
+              <div>
+                <label class="label">Order Status</label>
+                <select name="status" class="input" required>
+                  <option value="Pending">Pending (Draft)</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Delivered">Delivered</option>
+                </select>
+              </div>
+            </div>
+            <input type="hidden" name="employeeid" value="${user.id}">
+            <input type="hidden" name="orderdate" value="${new Date().toISOString().split('T')[0]}">
+          `
+        });
+        document.getElementById('add-dialog-container').appendChild(dialogHtml);
+        lucide.createIcons();
+      }
+
+      const columns = [
+        { header: 'PO #', accessorKey: 'poid' },
+        { 
+          header: 'Date', 
+          cell: (row) => new Date(row.orderdate).toLocaleDateString()
+        },
+        { 
+          header: 'Supplier', 
+          cell: (row) => row.supplier ? row.supplier.suppliername : `ID: ${row.supplierid}` 
+        },
+        { 
+          header: 'Total Amount', 
+          cell: (row) => formatMoney(row.totalamount)
+        },
+        { 
+          header: 'Status', 
+          cell: (row) => {
+            const colors = {
+              'Pending': 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300',
+              'Approved': 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300',
+              'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300'
+            };
+            const c = colors[row.status] || 'bg-slate-100 text-slate-800';
+            return `<span class="badge badge-outline ${c}">${row.status}</span>`;
+          }
+        },
+        { 
+          header: 'Created By', 
+          cell: (row) => row.employee ? row.employee.name : `ID: ${row.employeeid}` 
+        }
+      ];
+
+      const tableContainer = document.getElementById('table-container');
+      tableContainer.innerHTML = '';
+      tableContainer.appendChild(createDataTable(pos, columns, 'poid'));
+
+    } catch (e) {
+      document.getElementById('table-container').innerHTML = '';
+      const rlsBlocked = e.message.includes('RLS') || e.message.includes('permission');
+      document.getElementById('notice-container').appendChild(createDataNotice(e.message, rlsBlocked));
+    }
+  </script>
+</body>
+</html>

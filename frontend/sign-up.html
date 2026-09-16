@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hardware World - Sign Up Info</title>
+  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="dark bg-slate-950 text-slate-50 min-h-screen flex items-center justify-center p-4">
+
+  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl text-center">
+    
+    <div class="mx-auto w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-6">
+      <i data-lucide="shield-alert" class="w-8 h-8"></i>
+    </div>
+    
+    <h1 class="text-2xl font-bold text-white mb-4">Admin Provisioning Required</h1>
+    
+    <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl text-left text-sm text-slate-400 space-y-3 mb-8">
+      <p>
+        Hardware World employs strict <strong>Role-Based (RBAC)</strong> and <strong>Attribute-Based Access Control (ABAC)</strong> policies.
+      </p>
+      <p>
+        For security and auditing compliance, self-registration is disabled. All employee accounts, role assignments, and departmental scoping must be explicitly provisioned by a <strong>System Administrator</strong>.
+      </p>
+    </div>
+
+    <a href="/login.html" class="btn btn-primary w-full">
+      Return to Login
+    </a>
+
+  </div>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
