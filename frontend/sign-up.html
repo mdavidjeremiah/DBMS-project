@@ -3,21 +3,249 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hardware World - Sign Up Info</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <meta name="description" content="Hardware World account provisioning information. Learn about RBAC and ABAC access control policies.">
+  <title>Account Provisioning — Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body class="dark bg-slate-950 text-slate-50 min-h-screen flex items-center justify-center p-4">
+  <style>
+    /* ── Auth Page Foundations ── */
+    .auth-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #020617;
+      position: relative;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
 
-  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl text-center">
-    
-    <div class="mx-auto w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-6">
-      <i data-lucide="shield-alert" class="w-8 h-8"></i>
+    /* Animated gradient orbs */
+    .auth-page::before,
+    .auth-page::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.3;
+      animation: float 8s ease-in-out infinite alternate;
+    }
+    .auth-page::before {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, #ea580c 0%, transparent 70%);
+      top: -180px;
+      left: -100px;
+    }
+    .auth-page::after {
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, #f59e0b 0%, transparent 70%);
+      bottom: -150px;
+      right: -100px;
+      animation-delay: 4s;
+    }
+
+    @keyframes float {
+      0%   { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(30px, -20px) scale(1.1); }
+    }
+
+    /* Grid dot pattern overlay */
+    .dot-grid {
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+    }
+
+    /* ── Card ── */
+    .signup-card {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 520px;
+      border-radius: 1.5rem;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 30px 60px -12px rgba(0,0,0,0.6),
+        0 18px 36px -18px rgba(0,0,0,0.4);
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      padding: 3rem 2.5rem;
+      text-align: center;
+      animation: cardReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @media (max-width: 480px) {
+      .signup-card {
+        padding: 2rem 1.5rem;
+      }
+    }
+
+    @keyframes cardReveal {
+      0%   { opacity: 0; transform: translateY(20px) scale(0.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Icon Badge ── */
+    .icon-badge {
+      width: 72px;
+      height: 72px;
+      border-radius: 1.25rem;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fbbf24;
+      margin: 0 auto 1.75rem;
+      animation: badgePulse 3s ease-in-out infinite;
+    }
+
+    @keyframes badgePulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.15); }
+      50%      { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0); }
+    }
+
+    /* ── Title ── */
+    .card-title {
+      font-size: 1.625rem;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── Info Box ── */
+    .info-box {
+      background: rgba(2, 6, 23, 0.5);
+      border: 1px solid rgba(51, 65, 85, 0.4);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      text-align: left;
+      margin-bottom: 2rem;
+    }
+
+    .info-box p {
+      color: #94a3b8;
+      font-size: 0.875rem;
+      line-height: 1.7;
+    }
+
+    .info-box p + p {
+      margin-top: 0.875rem;
+    }
+
+    .info-box strong {
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+
+    /* ── Policy Features ── */
+    .policy-features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 420px) {
+      .policy-features {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .policy-item {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(51, 65, 85, 0.3);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #94a3b8;
+      transition: border-color 0.25s, background 0.25s;
+    }
+
+    .policy-item:hover {
+      border-color: rgba(100, 116, 139, 0.4);
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    .policy-icon {
+      flex-shrink: 0;
+    }
+
+    /* ── Return Button ── */
+    .return-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      height: 2.875rem;
+      border: none;
+      border-radius: 0.625rem;
+      background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .return-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.1) 100%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .return-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px -4px rgba(234, 88, 12, 0.35);
+    }
+    .return-btn:hover::before {
+      opacity: 1;
+    }
+
+    .return-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 12px -2px rgba(234, 88, 12, 0.25);
+    }
+
+    /* ── Footer text ── */
+    .card-footer {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: #475569;
+    }
+  </style>
+</head>
+<body class="auth-page">
+  <div class="dot-grid"></div>
+
+  <div class="signup-card">
+    <div class="icon-badge">
+      <i data-lucide="shield-alert" style="width:32px;height:32px"></i>
     </div>
-    
-    <h1 class="text-2xl font-bold text-white mb-4">Admin Provisioning Required</h1>
-    
-    <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl text-left text-sm text-slate-400 space-y-3 mb-8">
+
+    <h1 class="card-title">Admin Provisioning Required</h1>
+
+    <div class="info-box">
       <p>
         Hardware World employs strict <strong>Role-Based (RBAC)</strong> and <strong>Attribute-Based Access Control (ABAC)</strong> policies.
       </p>
@@ -26,10 +254,31 @@
       </p>
     </div>
 
-    <a href="/login.html" class="btn btn-primary w-full">
-      Return to Login
+    <div class="policy-features">
+      <div class="policy-item">
+        <i data-lucide="shield-check" class="policy-icon" style="width:16px;height:16px;color:#34d399"></i>
+        <span>RBAC Enforced</span>
+      </div>
+      <div class="policy-item">
+        <i data-lucide="key" class="policy-icon" style="width:16px;height:16px;color:#fbbf24"></i>
+        <span>ABAC Policies</span>
+      </div>
+      <div class="policy-item">
+        <i data-lucide="lock" class="policy-icon" style="width:16px;height:16px;color:#f97316"></i>
+        <span>Encrypted</span>
+      </div>
+      <div class="policy-item">
+        <i data-lucide="scan" class="policy-icon" style="width:16px;height:16px;color:#38bdf8"></i>
+        <span>Audit Trail</span>
+      </div>
+    </div>
+
+    <a href="/login.html" class="return-btn">
+      <i data-lucide="arrow-left" style="width:18px;height:18px"></i>
+      Return to Sign In
     </a>
 
+    <p class="card-footer">Contact your System Administrator for access.</p>
   </div>
 
   <script>

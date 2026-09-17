@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Suppliers - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -39,7 +39,7 @@
     initShell(user);
 
     // Initialize Add Dialog (if authorized)
-    if (['Admin', 'Procurement Officer'].includes(user.role)) {
+    if (['Admin', 'Procurement Officer'].includes(user.roletype)) {
       const dialogHtml = createFormDialog({
         title: 'Add New Supplier',
         triggerHtml: `<button class="btn btn-primary"><i data-lucide="plus" class="w-4 h-4"></i> Add Supplier</button>`,

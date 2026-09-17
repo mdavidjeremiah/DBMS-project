@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Purchase Orders - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -46,7 +46,7 @@
       ]);
       
       // Initialize Add Dialog (if authorized)
-      if (['Admin', 'Procurement Officer', 'Branch Manager'].includes(user.role)) {
+      if (['Admin', 'Procurement Officer', 'Branch Manager'].includes(user.roletype)) {
         const supOptions = (suppliers || []).map(s => `<option value="${s.supplierid}">${s.suppliername}</option>`).join('');
         const branchOptions = (org.branches || []).map(b => `<option value="${b.branchid}">${b.branchname}</option>`).join('');
         

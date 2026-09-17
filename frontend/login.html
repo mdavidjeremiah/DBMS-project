@@ -3,87 +3,512 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hardware World - Sign In</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <meta name="description" content="Sign in to Hardware World Enterprise Operations Management System. Secure access to inventory, sales, and HR portals.">
+  <title>Sign In — Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body class="dark bg-slate-950 text-slate-50 min-h-screen flex items-center justify-center p-4">
+  <style>
+    /* ── Auth Page Foundations ── */
+    .auth-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #020617;
+      position: relative;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
 
-  <div class="w-full max-w-5xl grid md:grid-cols-2 gap-8 md:gap-0 bg-slate-900/50 rounded-[2rem] border border-slate-800 shadow-2xl overflow-hidden">
-    
+    /* Animated gradient orbs */
+    .auth-page::before,
+    .auth-page::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.35;
+      animation: float 8s ease-in-out infinite alternate;
+    }
+    .auth-page::before {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, #ea580c 0%, transparent 70%);
+      top: -200px;
+      right: -150px;
+    }
+    .auth-page::after {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, #f97316 0%, transparent 70%);
+      bottom: -200px;
+      left: -150px;
+      animation-delay: 4s;
+    }
+
+    @keyframes float {
+      0%   { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(30px, -20px) scale(1.1); }
+    }
+
+    /* Grid dot pattern overlay */
+    .dot-grid {
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+    }
+
+    /* ── Main Split Container ── */
+    .auth-container {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 1000px;
+      display: grid;
+      grid-template-columns: 1fr;
+      border-radius: 1.5rem;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 30px 60px -12px rgba(0,0,0,0.6),
+        0 18px 36px -18px rgba(0,0,0,0.4);
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      animation: cardReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes cardReveal {
+      0%   { opacity: 0; transform: translateY(20px) scale(0.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (min-width: 768px) {
+      .auth-container {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    /* ── Branding Panel ── */
+    .brand-panel {
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 3rem;
+      position: relative;
+      background: linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #ea580c 150%);
+      overflow: hidden;
+    }
+
+    @media (min-width: 768px) {
+      .brand-panel {
+        display: flex;
+      }
+    }
+
+    .brand-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url('https://www.transparenttextures.com/patterns/carbon-fibre.png');
+      opacity: 0.15;
+      pointer-events: none;
+    }
+
+    .brand-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: rgba(234, 88, 12, 0.15);
+      border: 1px solid rgba(234, 88, 12, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #f97316;
+      margin-bottom: 2rem;
+      animation: logoPulse 3s ease-in-out infinite;
+    }
+
+    @keyframes logoPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.2); }
+      50%      { box-shadow: 0 0 0 12px rgba(234, 88, 12, 0); }
+    }
+
+    .brand-title {
+      font-size: 2.25rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      color: #fff;
+      line-height: 1.15;
+      margin-bottom: 1rem;
+    }
+
+    .brand-subtitle {
+      font-size: 1.05rem;
+      color: #94a3b8;
+      line-height: 1.65;
+      max-width: 320px;
+    }
+
+    .brand-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      font-size: 0.8rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+    .brand-badge + .brand-badge {
+      margin-top: 0.5rem;
+    }
+    .brand-badge svg {
+      flex-shrink: 0;
+    }
+
+    /* ── Form Panel ── */
+    .form-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 2rem;
+    }
+
+    @media (min-width: 768px) {
+      .form-panel {
+        padding: 3rem;
+      }
+    }
+
+    .form-header {
+      text-align: center;
+      width: 100%;
+      max-width: 380px;
+      margin-bottom: 2rem;
+    }
+
+    /* Mobile-only logo */
+    .mobile-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(234, 88, 12, 0.12);
+      border: 1px solid rgba(234, 88, 12, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #f97316;
+      margin: 0 auto 1.25rem;
+    }
+    @media (min-width: 768px) {
+      .mobile-logo { display: none; }
+    }
+
+    .form-title {
+      font-size: 1.625rem;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.375rem;
+    }
+
+    .form-desc {
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+
+    /* ── Form Styles ── */
+    .auth-form {
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .field-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .field-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.02em;
+    }
+
+    .field-wrap {
+      position: relative;
+    }
+
+    .field-icon {
+      position: absolute;
+      left: 0.875rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #475569;
+      pointer-events: none;
+      transition: color 0.2s;
+    }
+
+    .field-input {
+      width: 100%;
+      height: 2.75rem;
+      padding: 0 0.875rem 0 2.75rem;
+      border-radius: 0.625rem;
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      background: rgba(15, 23, 42, 0.5);
+      color: #f1f5f9;
+      font-size: 0.9rem;
+      font-family: 'Inter', sans-serif;
+      transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
+      outline: none;
+    }
+
+    .field-input::placeholder {
+      color: #475569;
+    }
+
+    .field-input:hover {
+      border-color: rgba(100, 116, 139, 0.5);
+      background: rgba(15, 23, 42, 0.7);
+    }
+
+    .field-input:focus {
+      border-color: #f97316;
+      box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12), 0 0 20px rgba(249, 115, 22, 0.06);
+      background: rgba(15, 23, 42, 0.8);
+    }
+
+    .field-input:focus ~ .field-icon {
+      color: #f97316;
+    }
+
+    .toggle-pwd {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 0.375rem;
+      transition: color 0.2s;
+      display: flex;
+      align-items: center;
+    }
+    .toggle-pwd:hover {
+      color: #f1f5f9;
+    }
+
+    /* ── Submit Button ── */
+    .auth-submit {
+      width: 100%;
+      height: 2.875rem;
+      border: none;
+      border-radius: 0.625rem;
+      background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+      position: relative;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .auth-submit::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.1) 100%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .auth-submit:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px -4px rgba(234, 88, 12, 0.35);
+    }
+    .auth-submit:hover:not(:disabled)::before {
+      opacity: 1;
+    }
+
+    .auth-submit:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 4px 12px -2px rgba(234, 88, 12, 0.25);
+    }
+
+    .auth-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* ── Footer Link ── */
+    .auth-footer {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: #64748b;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .auth-footer a {
+      color: #f97316;
+      font-weight: 600;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .auth-footer a:hover {
+      color: #fb923c;
+    }
+
+    /* ── Divider ── */
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.5rem 0;
+      color: #475569;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .auth-divider::before,
+    .auth-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(51, 65, 85, 0.5);
+    }
+
+    /* ── Error Toast ── */
+    .error-toast {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.625rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      font-size: 0.825rem;
+      margin-bottom: 1rem;
+      animation: shakeIn 0.4s ease;
+    }
+    .error-toast.show {
+      display: flex;
+    }
+
+    @keyframes shakeIn {
+      0%   { transform: translateX(-8px); opacity: 0; }
+      40%  { transform: translateX(4px); }
+      70%  { transform: translateX(-2px); }
+      100% { transform: translateX(0); opacity: 1; }
+    }
+
+    /* ── Spinner ── */
+    @keyframes authSpin {
+      to { transform: rotate(360deg); }
+    }
+    .auth-spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: authSpin 0.6s linear infinite;
+    }
+  </style>
+</head>
+<body class="auth-page">
+  <div class="dot-grid"></div>
+
+  <div class="auth-container" id="auth-container">
     <!-- Branding / Info Side -->
-    <div class="hidden md:flex flex-col justify-between p-12 bg-gradient-to-br from-slate-900 to-slate-950 border-r border-slate-800 relative overflow-hidden">
-      <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-      
-      <div class="relative z-10">
-        <div class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-orange-600/20 text-orange-500 mb-6">
-          <i data-lucide="hammer" class="w-6 h-6"></i>
-        </div>
-        <h1 class="text-4xl font-black tracking-tight text-white mb-4">Hardware World</h1>
-        <p class="text-slate-400 leading-relaxed text-lg">
+    <div class="brand-panel">
+      <div style="position:relative;z-index:1">
+        
+        <h1 class="brand-title">Hardware<br>World</h1>
+        <p class="brand-subtitle">
           Enterprise Operations Management System. Secure access to inventory, sales, and HR portals.
         </p>
       </div>
 
-      <div class="relative z-10">
-        <div class="flex items-center gap-3 text-sm text-slate-500 font-medium">
-          <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i>
-          <span>ABAC & RBAC Enforced</span>
-        </div>
-        <div class="flex items-center gap-3 text-sm text-slate-500 font-medium mt-2">
-          <i data-lucide="lock" class="w-4 h-4 text-orange-500"></i>
-          <span>End-to-End Encrypted</span>
-        </div>
-      </div>
+      
     </div>
 
     <!-- Login Form Side -->
-    <div class="p-8 md:p-12 flex flex-col items-center justify-center text-center">
-      <div class="mb-8 w-full max-w-md">
-        <h2 class="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-        <p class="text-slate-400">Sign in to your staff portal account.</p>
+    <div class="form-panel">
+      <div class="form-header">
+        
+        <h2 class="form-title">Welcome Back</h2>
+        <p class="form-desc">Sign in to your staff portal account.</p>
       </div>
 
-      <form id="login-form" class="w-full max-w-md space-y-5 text-left">
-        <div>
-          <label class="label text-slate-300">Email Address</label>
-          <div class="relative">
-            <i data-lucide="mail" class="absolute left-3 top-2.5 w-4 h-4 text-slate-500"></i>
-            <input type="email" name="email" required placeholder="Enter your work email" class="input pl-10 bg-slate-950 border-slate-800 text-white placeholder:text-slate-600" />
+      <!-- Error Toast -->
+      <div class="error-toast" id="error-toast">
+        <i data-lucide="alert-circle" style="width:16px;height:16px;flex-shrink:0"></i>
+        <span id="error-msg">Invalid credentials. Please try again.</span>
+      </div>
+
+      <form id="login-form" class="auth-form" novalidate>
+        <div class="field-group">
+          <label class="field-label" for="username-input">Name or Email</label>
+          <div class="field-wrap">
+            <input
+              type="text"
+              id="username-input"
+              name="username"
+              required
+              placeholder="Enter your full name or work email"
+              class="field-input"
+              autocomplete="username"
+            />
+            <i data-lucide="mail" class="field-icon" style="width:18px;height:18px"></i>
           </div>
         </div>
 
-        <div>
-          <label class="label text-slate-300">Password</label>
-          <div class="relative">
-            <i data-lucide="lock" class="absolute left-3 top-2.5 w-4 h-4 text-slate-500"></i>
-            <input type="password" name="password" id="password-input" required placeholder="••••••••" class="input pl-10 bg-slate-950 border-slate-800 text-white placeholder:text-slate-600" />
-            <button type="button" id="toggle-password" class="absolute right-3 top-2.5 text-slate-500 hover:text-white">
-              <i data-lucide="eye" class="w-4 h-4" id="eye-icon"></i>
+        <div class="field-group">
+          <label class="field-label" for="password-input">Password</label>
+          <div class="field-wrap">
+            <input
+              type="password"
+              id="password-input"
+              name="password"
+              required
+              placeholder="••••••••"
+              class="field-input"
+              autocomplete="current-password"
+            />
+            <i data-lucide="lock" class="field-icon" style="width:18px;height:18px"></i>
+            <button type="button" id="toggle-password" class="toggle-pwd" aria-label="Toggle password visibility">
+              <i data-lucide="eye" style="width:18px;height:18px" id="eye-icon"></i>
             </button>
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary w-full py-2.5 text-base" id="submit-btn">
+        <button type="submit" class="auth-submit" id="submit-btn">
           Sign In
         </button>
       </form>
 
-      <div class="mt-8 w-full max-w-md text-center text-sm text-slate-500">
-        Create an account <a href="/sign-up.html" class="text-orange-500 hover:text-orange-400 font-medium">Contact Administrator</a>
+      <div class="auth-footer">
+        Need an account? <a href="/sign-up.html">Contact Administrator</a>
       </div>
-
-       <!-- Demo Accounts (For easy testing) 
-      <div class="mt-8 w-full max-w-md border-t border-slate-800 pt-8">
-        <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-3 text-center">Fast-Fill Demo Accounts</p>
-        <div class="grid grid-cols-2 gap-2">
-          <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="akena@hw.local" data-pass="admin123">Admin</button>
-          <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="sarah@hw.local" data-pass="cashier123">Cashier</button>
-          <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="john@hw.local" data-pass="proc123">Procurement</button>
-          <button class="demo-btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded" data-email="grace@hw.local" data-pass="hr123">HR</button>
-        </div>
-      </div> -->
-
     </div>
   </div>
 
@@ -108,10 +533,10 @@
       lucide.createIcons();
     });
 
-    // Demo buttons
+    // Demo buttons (if re-enabled)
     document.querySelectorAll('.demo-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        document.querySelector('input[name="email"]').value = e.target.dataset.email;
+        document.querySelector('input[name="username"]').value = e.target.dataset.email;
         pwdInput.value = e.target.dataset.pass;
       });
     });
@@ -119,21 +544,25 @@
     // Form submission
     const form = document.getElementById('login-form');
     const submitBtn = document.getElementById('submit-btn');
+    const errorToast = document.getElementById('error-toast');
+    const errorMsg = document.getElementById('error-msg');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      const email = form.email.value;
+      const username = form.username.value;
       const password = form.password.value;
+
+      // Hide previous error
+      errorToast.classList.remove('show');
       
       try {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Signing in...';
-        lucide.createIcons();
+        submitBtn.innerHTML = '<div class="auth-spinner"></div> Signing in…';
 
         // OAuth2 Password Request
         const formData = new URLSearchParams();
-        formData.append('username', email); // FastAPI OAuth2 uses 'username' field
+        formData.append('username', username);
         formData.append('password', password);
 
         const data = await apiRequest('/login', {
@@ -147,7 +576,8 @@
         window.location.href = '/index.html';
         
       } catch (error) {
-        alert(`Login failed: ${error.message}`);
+        errorMsg.textContent = error.message || 'Login failed. Please check your credentials.';
+        errorToast.classList.add('show');
         submitBtn.disabled = false;
         submitBtn.innerText = 'Sign In';
       }

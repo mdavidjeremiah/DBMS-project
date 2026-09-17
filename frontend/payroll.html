@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Payroll - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -45,7 +45,7 @@
       ]);
       
       // Initialize Add Dialog (if HR or Admin)
-      if (['Admin', 'HR Staff'].includes(user.role)) {
+      if (['Admin', 'HR Staff'].includes(user.roletype)) {
         const empOptions = (employees || []).map(e => `<option value="${e.employeeid}">${e.name} (Base: ${formatMoney(e.salary)})</option>`).join('');
 
         const dialogHtml = createFormDialog({

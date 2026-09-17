@@ -40,30 +40,17 @@ export async function createProduct(formData) {
 }
 
 export async function createEmployee(formData) {
-  // Extract user login credentials first
-  const userPayload = {
-    email: formData.get('email'),
-    password: formData.get('password'),
-    role: formData.get('roletype'),
-    departmentid: Number(formData.get('departmentid'))
-  };
-
-  // Create the user account in auth system
-  const user = await apiRequest('/users/create-employee-account', {
-    method: 'POST',
-    body: JSON.stringify(userPayload)
-  });
-
-  // Now create the employee record linked to the user account
   const employeePayload = {
     name: formData.get('name'),
+    nin: formData.get('nin'),
+    email: formData.get('email') || null,
+    password: formData.get('password') || null,
     phone: formData.get('phone') || null,
     salary: Number(formData.get('salary')),
     datehired: formData.get('datehired') || new Date().toISOString().split('T')[0],
     branchid: Number(formData.get('branchid')),
     departmentid: Number(formData.get('departmentid')),
     roletype: formData.get('roletype'),
-    userid: user.id
   };
 
   if (formData.get('supervisorid')) {

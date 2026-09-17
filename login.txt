@@ -1,0 +1,40 @@
+Hardware World Default Login Accounts
+=====================================
+
+Administration
+Username: default
+Password: default
+Email: default@hardwareworld.com
+Role: Admin
+
+Sales
+Username: default_sales
+Password: default_sales
+Email: default.sales@hardwareworld.com
+Role: Cashier
+
+Procurement
+Username: default_procurement
+Password: default_procurement
+Email: default.procurement@hardwareworld.com
+Role: Procurement Officer
+
+Finance / Ledger
+Username: default_finance
+Password: default_finance
+Email: default.finance@hardwareworld.com
+Role: Accountant
+
+HR / Payroll
+Username: default_hr
+Password: default_hr
+Email: default.hr@hardwareworld.com
+Role: HR Staff
+
+Operations / Branch Management
+Username: default_operations
+Password: default_operations
+Email: default.operations@hardwareworld.com
+Role: Branch Manager
+
+Note: These are temporary default credentials. Change the passwords after testing.

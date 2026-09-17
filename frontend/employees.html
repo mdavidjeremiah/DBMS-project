@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Employees - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -31,7 +31,7 @@
     import { requireAuth } from './assets/js/auth.js';
     import { initShell } from './assets/js/shell.js';
     import { getEmployees, getOrganisation } from './assets/js/queries.js';
-    import { createEmployee } from './assets/js/actions.js';
+    import { createEmployee } from './assets/js/actions.js?v=2';
     import { createDataTable, createFormDialog, createDataNotice } from './assets/js/components.js';
 
     const user = await requireAuth();
@@ -45,7 +45,7 @@
       ]);
       
       // Initialize Add Dialog (if Admin)
-      if (user.role === 'Admin') {
+      if (user.roletype === 'Admin') {
         const branchOptions = (org.branches || []).map(b => `<option value="${b.branchid}">${b.branchname}</option>`).join('');
         const deptOptions = (org.departments || []).map(d => `<option value="${d.departmentid}">${d.departmentname}</option>`).join('');
         const supOptions = (employees || []).map(e => `<option value="${e.employeeid}">${e.name}</option>`).join('');
@@ -54,6 +54,7 @@
         const fieldsHtml = `
           <div class="grid gap-3 sm:grid-cols-2 max-h-[60vh] overflow-y-auto px-2">
             <div><label class="label">Full Name</label><input type="text" name="name" class="input" required placeholder="e.g. Samuel Okello"></div>
+            <div><label class="label">National ID (NIN)</label><input type="text" name="nin" class="input" required placeholder="e.g. CM900241009AKN"></div>
             <div><label class="label">Email (Login)</label><input type="email" name="email" class="input" required placeholder="samuel@hardwareworld.com"></div>
             <div><label class="label">Initial Password</label><input type="password" name="password" class="input" required placeholder="At least 6 chars"></div>
             <div><label class="label">Phone</label><input type="tel" name="phone" class="input" placeholder="+256..."></div>

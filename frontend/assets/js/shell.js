@@ -70,7 +70,7 @@ export function initShell(user) {
         </div>
         <div class="hidden md:block">
           <div class="text-sm font-medium leading-none">${user.name}</div>
-          <div class="text-xs text-muted-foreground">${user.role}</div>
+          <div class="text-xs text-muted-foreground">${user.roletype}</div>
         </div>
         <button class="btn btn-icon btn-ghost text-muted-foreground ml-2" id="sign-out" title="Sign out">
           <i data-lucide="log-out" class="w-4 h-4"></i>
@@ -124,7 +124,7 @@ export function initShell(user) {
 
   navItems.forEach(item => {
     // Only render if user has access
-    if (hasAccess(user.role, item.href)) {
+    if (hasAccess(user.roletype, item.href)) {
       const container = document.getElementById(item.group);
       const a = document.createElement('a');
       a.href = item.href;

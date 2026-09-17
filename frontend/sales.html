@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sales & POS - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -109,7 +109,7 @@
       ]);
 
       // --- POS Logic ---
-      if (['Cashier', 'Admin'].includes(user.role)) {
+      if (['Cashier', 'Admin'].includes(user.roletype)) {
         document.getElementById('pos-container').classList.remove('hidden');
         
         // Populate Selects
@@ -123,13 +123,13 @@
           empSelect.innerHTML += `<option value="${e.employeeid}">${e.name}</option>`;
         });
         // Auto-select current user if cashier
-        if (user.role === 'Cashier') empSelect.value = user.id;
+        if (user.roletype === 'Cashier') empSelect.value = user.employeeid;
 
         const bSelect = document.querySelector('select[name="branchid"]');
         (org.branches || []).forEach(b => {
           bSelect.innerHTML += `<option value="${b.branchid}">${b.branchname}</option>`;
         });
-        if (user.department?.branchid) bSelect.value = user.department.branchid;
+        if (user.branchid) bSelect.value = user.branchid;
 
         // Cart State
         let cart = [];

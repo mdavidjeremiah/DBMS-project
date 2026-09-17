@@ -130,7 +130,7 @@ export function createDataTable(data, columns, searchKey = null) {
     searchDiv.className = 'mb-4 flex items-center relative';
     searchDiv.innerHTML = `
       <i data-lucide="search" class="w-4 h-4 absolute left-3 text-muted-foreground"></i>
-      <input type="text" placeholder="Search by ${searchKey}..." class="input pl-9 max-w-sm" />
+      <input type="text" placeholder="Search by ${searchKey}..." class="input search-input pl-9 max-w-sm" />
     `;
     const searchInput = searchDiv.querySelector('input');
     searchInput.addEventListener('input', (e) => {
