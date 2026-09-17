@@ -13,14 +13,6 @@ import models
 import schemas
 import auth
 from database import engine, get_db
-import seed
-
-# Create the database tables and seed initial admin & records
-models.Base.metadata.create_all(bind=engine)
-try:
-    seed.seed_database()
-except Exception as err:
-    print(f"Database seed notice: {err}")
 
 app = FastAPI(title="Hardware World API")
 
@@ -33,6 +25,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 @app.get("/")
 def read_root():

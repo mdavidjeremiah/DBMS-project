@@ -1,84 +1,216 @@
 # Hardware World
 
-A full-stack management system for a hardware and construction-materials retail business — point-of-sale, procurement, HR/payroll, and accounting, built around a normalized (3NF) relational schema with role-based access control.
+Hardware World is a FastAPI and vanilla HTML/CSS/JavaScript management system for a hardware retail business. It includes sales, procurement, suppliers, products, employees, payroll, accounting, role-based access, SQLAlchemy models, and MySQL persistence.
 
-Built as a Database Management Systems group project at Makerere University, College of Computing and IT.
+## Architecture
 
-## What this is
+- `frontend/`: static HTML, CSS, and JavaScript served by FastAPI.
+- `backend/`: FastAPI routes, SQLAlchemy models, authentication, and seed data.
+- `db`: MySQL 8 running in Docker Compose.
+- Alembic: schema migrations in `backend/migrations/`.
+- Docker Compose: reproducible API and database development environment.
 
-Hardware World models a multi-branch hardware store chain with four departments — **HR**, **Procurement**, **Accounting**, and **Sales & Marketing** — each working from its own role-scoped dashboard. The system covers the full loop from a cashier ringing up a sale at the till, to a procurement officer restocking from a supplier, to an accountant seeing both sales and payroll land on a single ledger.
+The API uses `db` as the MySQL hostname inside Docker. Each developer gets an independent named MySQL volume.
 
-The relational schema (18 tables, fully normalized to 3NF) was derived from an Enhanced Entity Relationship Diagram (EERD) built for the business first — this repo implements that model, it doesn't design it from scratch. See `docs/schema.md` for how each table maps back to the logical model.
+## Prerequisites
 
-## Tech stack
+Install Docker Desktop with Compose support:
 
-- **Frontend:** Next.js (App Router, TypeScript), Tailwind CSS, shadcn/ui
-- **Backend:** Supabase — Postgres, Auth, Row Level Security, auto-generated API
-- **Database:** 18-relation 3NF schema with enforced specialization, weak/associative entities, and cross-department constraints
-- **CI/CD:** Supabase GitHub integration (migrations auto-deploy to production on merge to `main`)
+- Windows: Docker Desktop with WSL 2 enabled.
+- macOS: Docker Desktop.
+- Linux: Docker Engine and the Docker Compose plugin.
 
-## Core features
-
-- **Role-based dashboards** — Cashier, Procurement Officer, Accountant, HR Staff, and Branch Manager each see only what their role and branch permit, enforced at the database level via Postgres RLS, not just hidden UI
-- **Point of sale** — line-item sales, live totals, optional customer lookup, atomic checkout
-- **Procurement & inventory** — supplier catalogue, purchase orders with approval-limit enforcement, low-stock tracking
-- **HR & payroll** — employee records per role (with role-specific fields), monthly payroll generation
-- **Accounting ledger** — a single ledger fed by both sales (POS → Accounting) and payroll (HR → Accounting), giving accountants one place to see both
-- **Multi-branch support** — every employee, sale, and department is scoped to a branch
-
-## Database
-
-18 relations, normalized to 3NF (verified via full UNF → 1NF → 2NF → 3NF walkthroughs — see the project's logical model document):
-
-`BRANCH`, `DEPARTMENT`, `EMPLOYEE`, `CASHIER`, `PROCUREMENT_OFFICER`, `ACCOUNTANT`, `HR_STAFF`, `BRANCH_MANAGER`, `SUPPLIER`, `PURCHASE_ORDER`, `CATEGORY`, `PRODUCT`, `SUPPLY`, `CUSTOMER`, `SALE`, `SALE_ITEM`, `PAYROLL`, `LEDGER_ENTRY`
-
-Notable modeling decisions:
-
-- **EMPLOYEE specialization** (Cashier/Procurement Officer/Accountant/HR Staff/Branch Manager) is one-table-per-subtype, each sharing its primary key with `EMPLOYEE` as a foreign key.
-- `SALE_ITEM` and `SUPPLY` are weak/associative entities with composite primary keys.
-- `LEDGER_ENTRY` enforces, via a database `CHECK` constraint, that exactly one of `SaleID` / `PayrollID` is populated — matching its `SourceType`.
-
-Full field-by-field data dictionary: `docs/schema.md`.
-
-## Getting started
+Verify installation:
 
 ```bash
-git clone https://github.com/mdavidjeremiah/DBMS-project.git
+docker --version
+docker compose version
+```
+
+No local Python, MySQL, or Node.js installation is required for the Docker workflow.
+
+## Clone and configure
+
+```bash
+git clone <repository-url>
 cd DBMS-project
-npm install
 ```
 
-Copy `.env.local.example` to `.env.local` and fill in your Supabase project's URL and anon key (Settings → API in the Supabase dashboard):
+Linux/macOS:
 
 ```bash
-cp .env.local.example .env.local
-npm run dev
+cp .env.example .env
 ```
 
-Schema changes are managed as SQL migrations in `supabase/migrations/` and deploy automatically to the production database when merged to `main`, via the Supabase GitHub integration.
+Windows PowerShell:
 
-## Project roadmap
+```powershell
+Copy-Item .env.example .env
+```
 
-The build is sequenced as five GitHub issues, UI-first:
+Each developer creates their own uncommitted `.env`. The committed `.env.example` is a template. Never commit passwords, API keys, or `.env`.
 
-| # | Issue | Depends on |
-|---|---|---|
-| 1 | Project Scaffolding & Core UI Shell | — |
-| 2 | Supabase Project & 3NF Database Schema | — (parallel with #1) |
-| 3 | Authentication & Multi-User Role-Based Access Control | #1, #2 |
-| 4 | Procurement & Inventory Management | #1, #2, #3 |
-| 5 | Sales (POS), HR/Payroll, Accounting Ledger & Live Dashboard | #1, #2, #3, #4 |
+For Docker, keep `DB_HOST=db` and use the internal port `DB_PORT=3306`. If running the API directly on the host while MySQL runs in Docker, use `DB_HOST=localhost` and `DB_PORT=3307`.
 
-## Team & contributions
+## Start the project
 
-| Member | Student No. | Reg. No. | Issue | Focus |
-|---|---|---|---|---|
-| Muwanguzi David Jeremiah | 2500728758 | 25/U/28758/PS | #1 | Project scaffolding, app shell, and reusable UI primitives (data table, modal, stat cards, badges) |
-| Okuja Emmanuel Dila John | 2500728777 | 25/U/28777/PSA | #2 | Supabase project setup, 3NF database schema, seed data, TypeScript type generation<br>*(Project Manager)* |
-| Akena Jonathan Ogaba | 2500728727 | 25/U/28727/PS | #3 | Authentication, role permission matrix, and Row Level Security policies |
-| Mutebi Steven | 2500703479 | 25/U/03479/PSA | #4 | Procurement and inventory management: categories, products, suppliers, purchase orders |
-| Ssemwogere Godwin | 2500703577 | 25/U/03577/PSA | #5 | Point of sale, HR/payroll, accounting ledger, and the live dashboard |
+Initial setup:
 
-## Status
+```bash
+docker compose up -d --build
+docker compose logs -f api
+```
 
-🚧 In progress — Issue #2 (database schema) is implemented and verified against the production Supabase project. See the Issues tab for current progress on the rest.
+The API container waits for a healthy MySQL container, runs `alembic upgrade head`, seeds an empty database, and starts Uvicorn with reload enabled.
+
+Open:
+
+- Frontend: http://localhost:8000/
+- Health: http://localhost:8000/health
+- Swagger: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+The same commands work in Windows PowerShell. Stop log streaming with `Ctrl+C`; the containers remain running.
+
+## Database migrations
+
+Run migrations manually when needed:
+
+```bash
+docker compose exec api alembic upgrade head
+```
+
+The startup script also runs this command for local development. Every developer should run it after pulling migration changes.
+
+After changing SQLAlchemy models:
+
+```bash
+docker compose exec api alembic revision --autogenerate -m "describe the change"
+docker compose exec api alembic upgrade head
+```
+
+Review the generated file in `backend/migrations/versions/` before committing it. Autogenerated migrations are candidates, not proof that the migration is safe. Review renames, data transformations, indexes, constraints, and destructive operations manually.
+
+This repository had no previous Alembic history, so `0001_initial_schema.py` is a baseline for the existing model metadata. It is intended to initialize a fresh database and should not be downgraded destructively.
+
+## MySQL Workbench
+
+The application uses MySQL, not the ignored local SQLite file. Connect MySQL Workbench to the Compose database with:
+
+- Host: `127.0.0.1`
+- Port: `3307`
+- Username: the value of `MYSQL_USER` in `.env`
+- Password: the value of `MYSQL_PASSWORD` in `.env`
+- Default schema: the value of `MYSQL_DATABASE` in `.env`
+
+The API uses `db:3306` only inside the Compose network. Workbench uses the host mapping `3307:3306`.
+
+Example query:
+
+```sql
+USE hardware_world;
+SELECT * FROM employee;
+```
+
+Do not manually create tables in Workbench. Use Alembic so every teammate receives the same schema.
+
+## Common commands
+
+```bash
+docker compose ps
+docker compose logs -f api
+docker compose logs -f db
+docker compose exec api alembic current
+docker compose exec api alembic history
+docker compose down
+```
+
+`docker compose down` stops and removes containers but preserves the named MySQL volume.
+
+To intentionally reset all local database data:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+```
+
+`docker compose down -v` deletes the local MySQL volume and all data in it. This does not delete another developer's database.
+
+## After pulling changes
+
+```bash
+git pull
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+```
+
+If a teammate changes models, they must commit both the model change and its reviewed migration. Other teammates must apply that migration after pulling.
+
+## Team Git workflow
+
+```bash
+git pull
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+```
+
+For schema work:
+
+```bash
+docker compose up -d
+docker compose exec api alembic revision --autogenerate -m "add appointments table"
+docker compose exec api alembic upgrade head
+git add backend/migrations backend/models.py
+git commit -m "Add appointments table"
+git push
+```
+
+Never commit `.env`, local database files, passwords, or generated Python caches.
+
+## Verification checklist
+
+1. Run `docker compose build`.
+2. Run `docker compose up -d`.
+3. Confirm `docker compose ps` shows `db` as healthy.
+4. Run `docker compose exec api alembic upgrade head`.
+5. Confirm `docker compose ps` shows the API running.
+6. Open `/health` and confirm `{"status":"ok"}`.
+7. Open `/docs`.
+8. Test an authenticated endpoint such as `/departments/public` or `/employees` after login.
+9. Open the frontend at `/`.
+10. Confirm browser network requests use `http://localhost:8000` same-origin paths.
+11. Confirm tables appear in MySQL Workbench.
+12. Clone into a fresh directory and repeat the complete setup.
+
+## Troubleshooting
+
+- **Cannot connect to MySQL / connection refused:** run `docker compose ps` and `docker compose logs db`; wait for the healthcheck. Inside the API container the host must be `db`, not `localhost`.
+- **Access denied:** ensure `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_ROOT_PASSWORD` match the first database initialization. If credentials were changed after the volume was created, reset with `docker compose down -v` or use the original credentials.
+- **Unknown database:** check `MYSQL_DATABASE` and recreate the volume if the database was initialized with a different name.
+- **API exits immediately:** run `docker compose logs api`; migration errors are intentionally not hidden. Fix the reported migration or environment error.
+- **Alembic cannot find the database URL:** ensure `.env` exists and contains `DATABASE_URL`, then rebuild with `docker compose up -d --build`.
+- **Alembic creates an empty migration:** import the changed model in `backend/models.py` or `backend/migrations/env.py`, confirm the database URL points to the intended database, and review the generated migration.
+- **Table already exists:** the baseline migration is idempotent for an existing legacy schema. For a database with a partial history, inspect `alembic current` before stamping or migrating. Do not delete shared data.
+- **Port 8000 is busy:** change the host side only, for example `8001:8000`, then open `http://localhost:8001`.
+- **Port 3307 is busy:** change the host side only, for example `3308:3306`, and use that port in Workbench. Keep the API's internal port at `3306`.
+- **CORS errors:** the normal Docker setup is same-origin and needs no broad CORS rule. For a separately served frontend, configure its exact origin in FastAPI and set `window.__HW_API_URL__` before the frontend modules load.
+- **Wrong API URL:** do not hard-code a teammate's IP. The frontend defaults to relative API paths; use `window.__HW_API_URL__` only for a separately hosted frontend.
+- **Database changes are not visible:** verify the active schema in Workbench, run `alembic upgrade head`, and check that the API and Workbench are using the same database.
+- **Containers run but API cannot reach `db`:** confirm the API is on the Compose network and that `DATABASE_URL` uses `@db:3306`, not `@localhost`.
+- **Old database volume conflicts with the new schema:** back up any needed data, then intentionally run `docker compose down -v` and rebuild. This permanently deletes only that local Compose volume.
+
+## Security and data-loss warnings
+
+- Replace the example passwords and `SECRET_KEY` for any shared or deployed environment.
+- Do not expose MySQL publicly in production.
+- Host port `3307` is for local Workbench access only.
+- Review every autogenerated migration before committing it.
+- `docker compose down -v` permanently deletes local database data.
+- The local SQLite `backend/hardware_world.db` file is not the Docker database and is ignored by Git.
+
+## Assumptions and manual review
+
+Assumptions made: the existing synchronous SQLAlchemy models remain authoritative; FastAPI continues serving the static frontend; MySQL 8 is available through Docker; and the current seed data is appropriate for a newly initialized local database.
+
+Before committing, manually inspect `docker-compose.yml`, `.env.example`, `backend/database.py`, `backend/migrations/env.py`, `backend/migrations/versions/0001_initial_schema.py`, `backend/seed.py`, and the generated Docker logs. Confirm the baseline matches the intended schema and that no credentials are committed.
