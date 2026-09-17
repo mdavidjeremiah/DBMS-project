@@ -67,32 +67,32 @@ export async function requireAuth() {
   // If we are at root, it's index.html
   const pathToCheck = currentPath === '/' ? '/index.html' : currentPath;
 
-  if (!hasAccess(user.role, pathToCheck) && pathToCheck !== '/index.html') {
-    // We allow everyone to see the dashboard (index.html), but other pages are restricted.
-    // If they don't have access to this page, render the Access Denied component
-    document.body.innerHTML = '';
-    
-    // Dynamically import components to show access denied
-    import('./components.js').then(({ createAccessDenied }) => {
-      const container = document.createElement('div');
-      container.className = 'app-shell';
+    if (!hasAccess(user.roletype, pathToCheck) && pathToCheck !== '/index.html') {
+      // We allow everyone to see the dashboard (index.html), but other pages are restricted.
+      // If they don't have access to this page, render the Access Denied component
+      document.body.innerHTML = '';
       
-      const main = document.createElement('main');
-      main.style.padding = '2rem';
-      main.appendChild(createAccessDenied(user.role, user.department?.departmentname || 'Unknown'));
+      // Dynamically import components to show access denied
+      import('./components.js').then(({ createAccessDenied }) => {
+        const container = document.createElement('div');
+        container.className = 'app-shell';
+        
+        const main = document.createElement('main');
+        main.style.padding = '2rem';
+        main.appendChild(createAccessDenied(user.roletype, user.department_name || 'Unknown'));
+        
+        container.appendChild(main);
+        document.body.appendChild(container);
+      });
       
-      container.appendChild(main);
-      document.body.appendChild(container);
-    });
-    
-    return null; // Prevent further rendering
+      return null; // Prevent further rendering
+    }
+  
+    return user;
   }
-
-  return user;
-}
-
-/** Sign out the user and redirect to login */
-export function signOut() {
-  clearAccessToken();
-  window.location.replace('/login.html');
-}
+  
+  /** Sign out the user and redirect to login */
+  export function signOut() {
+    clearAccessToken();
+    window.location.replace('/login.html');
+  }

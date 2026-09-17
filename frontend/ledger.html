@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>General Ledger - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -46,7 +46,7 @@
       ]);
       
       // Initialize Add Dialog (if Admin or Accountant)
-      if (['Admin', 'Accountant'].includes(user.role)) {
+      if (['Admin', 'Accountant'].includes(user.roletype)) {
         const saleOptions = (sales || []).map(s => `<option value="${s.saleid}">Sale #${s.saleid} (${formatMoney(s.totalamount)})</option>`).join('');
         const payrollOptions = (payroll || []).map(p => `<option value="${p.payrollid}">Payroll #${p.payrollid} (${formatMoney(p.amount)})</option>`).join('');
 

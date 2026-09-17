@@ -3,12 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "build:css": "tailwindcss -i ./assets/css/tailwind.input.css -o ./assets/css/tailwind.css --minify",
     "dev": "npx -y serve@latest .",
     "start": "npx -y serve@latest -s ."
-  },
-  "devDependencies": {
-    "@tailwindcss/cli": "^4.1.13",
-    "tailwindcss": "^4.1.13"
   }
 }

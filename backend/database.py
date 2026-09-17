@@ -6,7 +6,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 load_dotenv()
 
 # Try connecting to MySQL if configured, else fall back gracefully to local SQLite
-default_mysql_url = "mysql+pymysql://root:password@localhost:3306/hardware_world"
+default_mysql_url = "mysql+pymysql://root:Akena123akena.@localhost:3306/hardware_world"
 target_url = os.getenv("DATABASE_URL", default_mysql_url)
 
 try:

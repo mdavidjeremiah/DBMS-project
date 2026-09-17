@@ -1,20 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - Hardware World</title>
-  <link rel="stylesheet" href="./assets/css/tailwind.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
   <script src="https://unpkg.com/lucide@latest"></script>
+
 </head>
+
 <body>
   <!-- Shell injected by JS -->
-  
+
   <div class="space-y-6">
     <!-- Hero Header -->
     <div class="relative overflow-hidden rounded-2xl gradient-hero p-8 border border-slate-800 shadow-xl">
-      <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-      
+      <div
+        class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20">
+      </div>
+
       <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <div class="flex items-center gap-2 mb-2">
@@ -23,7 +28,8 @@
           </div>
           <h1 class="text-3xl md:text-4xl font-black tracking-tight text-white mb-2" id="welcome-msg">Welcome back</h1>
           <p class="text-slate-300 max-w-xl">
-            Hardware World Enterprise Management System. Manage inventory, process sales, and monitor branch performance.
+            Hardware World Enterprise Management System. Manage inventory, process sales, and monitor branch
+            performance.
           </p>
         </div>
       </div>
@@ -32,10 +38,18 @@
     <!-- KPIs -->
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4" id="kpis">
       <!-- Injected by JS -->
-      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
-      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
-      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
-      <div class="card p-6 opacity-50"><div class="animate-pulse h-16 bg-muted rounded"></div></div>
+      <div class="card p-6 opacity-50">
+        <div class="animate-pulse h-16 bg-muted rounded"></div>
+      </div>
+      <div class="card p-6 opacity-50">
+        <div class="animate-pulse h-16 bg-muted rounded"></div>
+      </div>
+      <div class="card p-6 opacity-50">
+        <div class="animate-pulse h-16 bg-muted rounded"></div>
+      </div>
+      <div class="card p-6 opacity-50">
+        <div class="animate-pulse h-16 bg-muted rounded"></div>
+      </div>
     </div>
 
     <!-- Chart -->
@@ -101,8 +115,8 @@
     initShell(user);
 
     // 2. Hydrate Header
-    document.getElementById('user-role-badge').innerText = user.role;
-    document.getElementById('user-dept-badge').innerText = user.department?.departmentname || 'No Dept';
+    document.getElementById('user-role-badge').innerText = user.roletype;
+    document.getElementById('user-dept-badge').innerText = user.department_name || 'No Dept';
     document.getElementById('welcome-msg').innerText = `Welcome back, ${user.name.split(' ')[0]}`;
 
     // 3. Fetch Data
@@ -147,7 +161,7 @@
         { label: '6 days ago', value: 0 }, { label: '5 days ago', value: 0 },
         { label: '4 days ago', value: 0 }, { label: '3 days ago', value: 0 },
         { label: '2 days ago', value: 0 }, { label: 'Yesterday', value: 0 },
-        { label: 'Today', value: data.salesToday || 1 } 
+        { label: 'Today', value: data.salesToday || 1 }
       ];
       const chartContainer = document.getElementById('chart-container');
       chartContainer.innerHTML = '';
@@ -178,7 +192,7 @@
       document.getElementById('recent-pos').innerHTML = posList;
 
       // Render Admin Hub if Admin
-      if (user.role === 'Admin') {
+      if (user.roletype === 'Admin') {
         document.getElementById('admin-dept-hub').classList.remove('hidden');
         const orgData = await getOrganisation();
         const deptsHtml = orgData.departments.map(d => `
@@ -198,4 +212,5 @@
     }
   </script>
 </body>
+
 </html>
