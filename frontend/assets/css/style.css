@@ -120,6 +120,11 @@ button {
 input, select, textarea {
   font-family: inherit;
   font-size: 0.875rem;
+  color: #ffffff;
+}
+
+input[type="checkbox"]:checked + label {
+  color: #ffffff;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -309,12 +314,43 @@ input, select, textarea {
   background-color: var(--background);
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
+  color: #ffffff;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--ring);
   box-shadow: 0 0 0 1px var(--ring);
+}
+
+/* ═══════════════════════════════════════════════════
+   SEARCH BAR TEXT — HARD OVERRIDE
+   ═══════════════════════════════════════════════════ */
+input[type="search"],
+input[data-search],
+.input,
+.search-input,
+.search input,
+.table-tools input,
+.topbar input {
+  color: #ffffff !important;
+}
+
+.table-container input.input,
+.table-container input[type="text"],
+.table-container input[type="search"] {
+  color: #ffffff !important;
+}
+
+input[type="search"]::placeholder,
+input[data-search]::placeholder,
+.input::placeholder,
+.search-input::placeholder,
+.search input::placeholder,
+.table-tools input::placeholder,
+.topbar input::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 1;
 }
 
 /* Label */
