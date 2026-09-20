@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from typing import Optional
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -7,6 +8,8 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
+from jose import JWTError, jwt
+from starlette.background import BackgroundTasks as StarletteBackgroundTasks
 from datetime import timedelta, datetime
 from decimal import Decimal
 
@@ -14,6 +17,7 @@ import models
 import schemas
 import auth
 from database import engine, get_db
+from audit import request_ip, write_audit_log
 
 app = FastAPI(
     title="Hardware World API",
@@ -55,6 +59,57 @@ def swagger_ui():
 @app.get("/health", tags=["system"])
 def health_check():
     return {"status": "ok"}
+
+AUDIT_EXCLUDED_PATHS = {"/login", "/logout", "/audit/page-view", "/departments/public", "/openapi.json", "/docs", "/redoc"}
+
+
+def add_audit_background_task(response, **event):
+    """Attach audit persistence after the response so normal requests stay responsive."""
+    background = StarletteBackgroundTasks()
+    if response.background is not None:
+        background.add_task(response.background)
+    background.add_task(write_audit_log, **event)
+    response.background = background
+
+
+def audit_identity_from_request(request: Request):
+    authorization = request.headers.get("authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        payload = jwt.decode(authorization.split(" ", 1)[1], auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        email = payload.get("sub")
+        return {"username_or_email": email, "user_id": None} if email else None
+    except JWTError:
+        return None
+
+
+@app.middleware("http")
+async def audit_protected_api_access(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    identity = audit_identity_from_request(request)
+    if (
+        identity
+        and request.method != "OPTIONS"
+        and path not in AUDIT_EXCLUDED_PATHS
+        and not path.startswith("/assets/")
+        and not path.endswith(".html")
+    ):
+        if response.status_code in (401, 403):
+            action = "ACCESS_DENIED"
+        elif request.method == "GET":
+            action = "DATABASE_QUERY"
+        else:
+            action = "DATABASE_MODIFICATION"
+        add_audit_background_task(
+            response,
+            **identity,
+            action=action,
+            details=f"{request.method} {path} returned {response.status_code}",
+            ip_address=request_ip(request),
+        )
+    return response
 
 @app.get("/", tags=["system"])
 def read_root():
@@ -112,7 +167,7 @@ def register_user(
     return new_user
 
 @app.post("/login", response_model=schemas.Token, tags=["authentication"])
-async def login_for_access_token(request: Request, db: Session = Depends(get_db)):
+async def login_for_access_token(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Unified Authentication Endpoint with:
     - Support for JSON payload and Form Data
@@ -143,6 +198,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         login_type = str(form.get("login_type", "staff")).strip().lower()
 
     if not username or not password:
+        write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Login attempt missing username or password", ip_address=request_ip(request))
         raise HTTPException(status_code=400, detail="Username/Email and Password are required")
 
     # Lookup user by Email OR Full Name (case-insensitive)
@@ -154,6 +210,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
     ).first()
 
     if not user or not user.hashed_password or not auth.verify_password(password, user.hashed_password):
+        write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Invalid username/email or password", ip_address=request_ip(request))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username/email or password.",
@@ -163,6 +220,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
     # 1. RBAC (Role-Based Access Control) Policy Check:
     if login_type == "admin":
         if user.roletype != models.RoleType.ADMIN:
+            write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="ACCESS_DENIED", details="Non-admin account attempted to use the administrator portal", ip_address=request_ip(request))
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access Denied (RBAC): Your account role is '{user.roletype.value}'. Only Administrators can log in through the Admin Portal."
@@ -178,6 +236,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
             is_id_match = str(user.departmentid) == str(selected_dept).strip()
 
             if not (is_name_match or is_id_match):
+                write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="ACCESS_DENIED", details="Staff login attempted with a different department", ip_address=request_ip(request))
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Access Denied (ABAC): Department mismatch. Your user profile is assigned to '{user_dept}', but you selected '{selected_dept}'. Staff members can only log into their assigned department dashboard."
@@ -196,7 +255,49 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         }, 
         expires_delta=access_token_expires
     )
+    background_tasks.add_task(
+        write_audit_log,
+        user_id=user.employeeid,
+        username_or_email=user.email or user.name,
+        action="LOGIN",
+        details=f"Successful {login_type} portal login",
+        ip_address=request_ip(request),
+    )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/logout")
+def logout(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: models.Employee = Depends(auth.get_current_user),
+):
+    background_tasks.add_task(
+        write_audit_log,
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="LOGOUT",
+        details="User signed out",
+        ip_address=request_ip(request),
+    )
+    return {"detail": "Logged out"}
+
+
+@app.post("/audit/page-view")
+def record_page_view(
+    payload: schemas.AuditPageView,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: models.Employee = Depends(auth.get_current_user),
+):
+    background_tasks.add_task(
+        write_audit_log,
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="VIEW_PAGE",
+        details=f"Viewed protected page: {payload.page[:255]}",
+        ip_address=request_ip(request),
+    )
+    return {"detail": "Page view recorded"}
 
 @app.get("/users/me", tags=["authentication"])
 def read_users_me(current_user: models.Employee = Depends(auth.get_current_user)):
@@ -210,6 +311,36 @@ def read_users_me(current_user: models.Employee = Depends(auth.get_current_user)
         "branchid": current_user.branchid,
         "branch_name": current_user.branch.branchname if current_user.branch else None
     }
+
+
+@app.get("/audit-logs", response_model=schemas.AuditLogPage)
+def get_audit_logs(
+    user: Optional[str] = Query(None, max_length=100),
+    action: Optional[str] = Query(None, max_length=64),
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: models.Employee = Depends(auth.get_current_user),
+):
+    require_role(current_user, models.RoleType.ADMIN)
+    query = db.query(models.AuditLog)
+    if user:
+        if user.isdigit():
+            query = query.filter(or_(models.AuditLog.user_id == int(user), models.AuditLog.username_or_email.ilike(f"%{user}%")))
+        else:
+            query = query.filter(models.AuditLog.username_or_email.ilike(f"%{user}%"))
+    if action:
+        query = query.filter(models.AuditLog.action == action)
+    if start_date:
+        query = query.filter(models.AuditLog.timestamp >= start_date)
+    if end_date:
+        query = query.filter(models.AuditLog.timestamp <= end_date)
+
+    total = query.count()
+    items = query.order_by(models.AuditLog.timestamp.desc(), models.AuditLog.auditlogid.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 # Example of a protected endpoint
