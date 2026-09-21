@@ -1,6 +1,6 @@
 // Cookie-based JWT auth against FastAPI backend.
 
-export const API_URL = window.__HW_API_URL__ || 'http://127.0.0.1:8000';
+export const API_URL = window.__HW_API_URL__ || '';
 export const TOKEN_COOKIE = 'hw_access_token';
 
 export function getToken() {

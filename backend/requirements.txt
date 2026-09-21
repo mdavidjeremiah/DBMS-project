@@ -8,3 +8,4 @@ passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.5.0
 pydantic[email]==2.13.5
 cryptography==41.0.4
+alembic==1.16.5
