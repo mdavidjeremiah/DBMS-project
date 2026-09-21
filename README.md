@@ -1,40 +1,72 @@
 # Hardware World
 
-Hardware World is a FastAPI and vanilla HTML/CSS/JavaScript management system for a hardware retail business. It includes sales, procurement, suppliers, products, employees, payroll, accounting, role-based access, SQLAlchemy models, and MySQL persistence.
+Hardware World is a hardware-retail management system built for a DBMS project. It combines a FastAPI backend, a vanilla HTML/CSS/JavaScript frontend, SQLAlchemy models, MySQL persistence, JWT authentication, role-based access control, and a seeded local development database.
+
+## Current Status
+
+The active application is the Dockerized FastAPI/MySQL implementation in this repository. The following milestones are complete:
+
+- Relational SQLAlchemy model covering branches, departments, employees, roles, products, categories, suppliers, purchase orders, customers, sales, payroll, and ledger entries.
+- Alembic baseline migration and repeatable container startup migrations.
+- MySQL 8 Docker Compose environment with health checks and persistent local storage.
+- Seed data for branches, departments, users, catalogue records, sales, purchase orders, and ledger entries.
+- JWT login with name-or-email lookup and department-aware staff login.
+- Six application roles: Cashier, Procurement Officer, Accountant, HR Staff, Branch Manager, and Admin.
+- API-level RBAC checks for protected read and write operations.
+- Static frontend pages for the dashboard, products, categories, suppliers, purchase orders, sales, employees, payroll, ledger, settings, login, and sign-up.
+- OpenAPI documentation at `/docs`, with Swagger UI assets served locally so documentation works without external CDN access.
 
 ## Architecture
 
-- `frontend/`: static HTML, CSS, and JavaScript served by FastAPI.
-- `backend/`: FastAPI routes, SQLAlchemy models, authentication, and seed data.
-- `db`: MySQL 8 running in Docker Compose.
-- Alembic: schema migrations in `backend/migrations/`.
-- Docker Compose: reproducible API and database development environment.
+```text
+Browser
+  |
+  v
+FastAPI + Uvicorn :8000
+  |-- Static frontend files
+  |-- JWT authentication and role checks
+  |-- REST API and OpenAPI documentation
+  |
+  v
+SQLAlchemy
+  |
+  v
+MySQL 8 :3306 inside Docker (host port :3307)
+```
 
-The API uses `db` as the MySQL hostname inside Docker. Each developer gets an independent named MySQL volume.
+| Location | Purpose |
+| --- | --- |
+| `backend/main.py` | FastAPI application, API routes, and Swagger configuration |
+| `backend/auth.py` | Password hashing, JWT creation, and current-user dependency |
+| `backend/models.py` | SQLAlchemy entities and role/status enums |
+| `backend/schemas.py` | Pydantic request and response models |
+| `backend/database.py` | Database engine and session dependency |
+| `backend/migrations/` | Alembic configuration and reviewed migrations |
+| `backend/seed.py` | Local development seed data |
+| `backend/swagger-ui/` | Local Swagger UI JavaScript and CSS assets |
+| `frontend/` | Static application pages and browser modules |
+| `docker-compose.yml` | MySQL and API services |
+| `entrypoint.sh` | Database wait, migration, seed, and Uvicorn startup sequence |
 
-## Prerequisites
+## Requirements
 
-Install Docker Desktop with Compose support:
+For the recommended workflow, install:
 
-- Windows: Docker Desktop with WSL 2 enabled.
-- macOS: Docker Desktop.
-- Linux: Docker Engine and the Docker Compose plugin.
+- Docker Desktop with Docker Compose support
+- Git
 
-Verify installation:
+Verify Docker:
 
 ```bash
 docker --version
 docker compose version
 ```
 
-No local Python, MySQL, or Node.js installation is required for the Docker workflow.
+No local Python, MySQL, or Node.js installation is required when using Docker Compose.
 
-## Clone and configure
+## Configuration
 
-```bash
-git clone <repository-url>
-cd DBMS-project
-```
+Copy the environment template into a local, uncommitted `.env` file at the repository root:
 
 Linux/macOS:
 
@@ -48,73 +80,144 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Each developer creates their own uncommitted `.env`. The committed `.env.example` is a template. Never commit passwords, API keys, or `.env`.
+The default local settings use:
 
-For Docker, keep `DB_HOST=db` and use the internal port `DB_PORT=3306`. If running the API directly on the host while MySQL runs in Docker, use `DB_HOST=localhost` and `DB_PORT=3307`.
+```env
+MYSQL_DATABASE=hardware_world
+MYSQL_USER=hw_user
+MYSQL_PASSWORD=hw_password
+MYSQL_ROOT_PASSWORD=hw_root_password
+APP_HOST=0.0.0.0
+APP_PORT=8000
+```
 
-## Start the project
+Docker Compose converts these values into the API's internal connection string. The API connects to MySQL at `db:3306` inside the Compose network. Do not use `localhost` for the API's container-to-database connection.
 
-Initial setup:
+Never commit `.env`, passwords, API keys, or production secrets.
+
+## Run With Docker
+
+Build and start the complete stack:
 
 ```bash
 docker compose up -d --build
+```
+
+Watch API startup:
+
+```bash
 docker compose logs -f api
 ```
 
-The API container waits for a healthy MySQL container, runs `alembic upgrade head`, seeds an empty database, and starts Uvicorn with reload enabled.
+The API container:
 
-Open:
+1. Waits for the MySQL health check.
+2. Runs `alembic upgrade head`.
+3. Seeds the database when the admin account does not exist.
+4. Starts Uvicorn with reload enabled.
 
-- Frontend: http://localhost:8000/
-- Health: http://localhost:8000/health
-- Swagger: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+Open the application:
 
-The same commands work in Windows PowerShell. Stop log streaming with `Ctrl+C`; the containers remain running.
+| Resource | URL |
+| --- | --- |
+| Frontend dashboard | http://localhost:8000/ |
+| Health check | http://localhost:8000/health |
+| Swagger UI | http://localhost:8000/docs |
+| OpenAPI JSON | http://localhost:8000/openapi.json |
+| ReDoc | http://localhost:8000/redoc |
 
-## Database migrations
+Swagger UI is served from `backend/swagger-ui/`; it does not require access to jsDelivr or another external CDN.
 
-Run migrations manually when needed:
+## Demo Accounts
+
+The seed script creates local development accounts:
+
+| Account | Login | Password | Role |
+| --- | --- | --- | --- |
+| Akena | `akena@hardwareworld.com` or `Akena` | `adminpassword` | Admin |
+| Sarah Nakato | `sarah@hardwareworld.com` or `Sarah Nakato` | `staff123` | Cashier |
+| John Kato | `john@hardwareworld.com` or `John Kato` | `staff123` | Procurement Officer |
+| Grace Apio | `grace@hardwareworld.com` or `Grace Apio` | `staff123` | Accountant |
+| Moses Opolot | `moses@hardwareworld.com` or `Moses Opolot` | `staff123` | HR Staff |
+| Brian Mukasa | `brian@hardwareworld.com` or `Brian Mukasa` | `staff123` | Branch Manager |
+
+These credentials are for local testing only. Replace them and the default `SECRET_KEY` before using the application outside a private development environment.
+
+## Authentication and Access Control
+
+`POST /login` accepts JSON or form data with `username`, `password`, `department`, and `login_type`. Successful login returns a bearer token. The frontend stores the token in a same-origin cookie and sends it as an `Authorization: Bearer` header for protected API calls.
+
+The API enforces role checks in route dependencies and handler logic:
+
+| Role | Main responsibility |
+| --- | --- |
+| Cashier | Sales and point-of-sale operations |
+| Procurement Officer | Products, categories, suppliers, and purchase orders |
+| Accountant | Ledger, sales visibility, and payroll visibility |
+| HR Staff | Employees, departments, and payroll |
+| Branch Manager | Branch-level operational oversight |
+| Admin | System-wide administration |
+
+Staff login also verifies the selected department against the employee's assigned department. The complete role and table matrix is documented in [PERMISSION_MATRIX.md](PERMISSION_MATRIX.md).
+
+## API Endpoints
+
+All endpoints appear in Swagger UI and the generated OpenAPI document.
+
+| Area | Endpoints |
+| --- | --- |
+| System | `GET /health`, `GET /` |
+| Authentication | `POST /login`, `POST /register`, `GET /users/me` |
+| Organisation | `GET /departments/public`, `GET/POST /branches`, `GET /departments`, `GET/POST /employees` |
+| Catalogue | `GET /categories`, `POST /categories`, `GET /products`, `POST /products`, `GET /suppliers`, `POST /suppliers` |
+| Operations | `GET/POST /purchase-orders`, `GET/POST /payroll`, `GET/POST /sales`, `GET/POST /ledger` |
+
+`/departments/public`, `/health`, `/`, and `/login` are usable without a bearer token. Most business endpoints require authentication, and write operations apply additional role checks.
+
+## Database Migrations
+
+Apply the current migration manually when needed:
 
 ```bash
 docker compose exec api alembic upgrade head
 ```
 
-The startup script also runs this command for local development. Every developer should run it after pulling migration changes.
+Inspect migration state:
 
-After changing SQLAlchemy models:
+```bash
+docker compose exec api alembic current
+docker compose exec api alembic history
+```
+
+After changing SQLAlchemy models, generate and review a migration:
 
 ```bash
 docker compose exec api alembic revision --autogenerate -m "describe the change"
 docker compose exec api alembic upgrade head
 ```
 
-Review the generated file in `backend/migrations/versions/` before committing it. Autogenerated migrations are candidates, not proof that the migration is safe. Review renames, data transformations, indexes, constraints, and destructive operations manually.
-
-This repository had no previous Alembic history, so `0001_initial_schema.py` is a baseline for the existing model metadata. It is intended to initialize a fresh database and should not be downgraded destructively.
+`0001_initial_schema.py` is the non-destructive baseline for the current model metadata. Review generated migrations for renames, data transformations, constraints, indexes, and destructive operations before committing them.
 
 ## MySQL Workbench
 
-The application uses MySQL, not the ignored local SQLite file. Connect MySQL Workbench to the Compose database with:
+Connect from the host using:
 
 - Host: `127.0.0.1`
 - Port: `3307`
-- Username: the value of `MYSQL_USER` in `.env`
-- Password: the value of `MYSQL_PASSWORD` in `.env`
-- Default schema: the value of `MYSQL_DATABASE` in `.env`
+- User: the `MYSQL_USER` value from `.env`
+- Password: the `MYSQL_PASSWORD` value from `.env`
+- Schema: the `MYSQL_DATABASE` value from `.env`
 
-The API uses `db:3306` only inside the Compose network. Workbench uses the host mapping `3307:3306`.
-
-Example query:
+Example:
 
 ```sql
 USE hardware_world;
 SELECT * FROM employee;
 ```
 
-Do not manually create tables in Workbench. Use Alembic so every teammate receives the same schema.
+Use Alembic for schema changes instead of manually creating or altering tables.
 
-## Common commands
+## Common Commands
 
 ```bash
 docker compose ps
@@ -125,92 +228,50 @@ docker compose exec api alembic history
 docker compose down
 ```
 
-`docker compose down` stops and removes containers but preserves the named MySQL volume.
-
-To intentionally reset all local database data:
+`docker compose down` removes containers but preserves the named MySQL volume. To intentionally delete all local database data:
 
 ```bash
 docker compose down -v
 docker compose up -d --build
-docker compose exec api alembic upgrade head
 ```
 
-`docker compose down -v` deletes the local MySQL volume and all data in it. This does not delete another developer's database.
+Do not run `down -v` unless losing the local database is acceptable.
 
-## After pulling changes
+## Verification Checklist
 
-```bash
-git pull
-docker compose up -d --build
-docker compose exec api alembic upgrade head
-```
-
-If a teammate changes models, they must commit both the model change and its reviewed migration. Other teammates must apply that migration after pulling.
-
-## Team Git workflow
-
-```bash
-git pull
-docker compose up -d --build
-docker compose exec api alembic upgrade head
-```
-
-For schema work:
-
-```bash
-docker compose up -d
-docker compose exec api alembic revision --autogenerate -m "add appointments table"
-docker compose exec api alembic upgrade head
-git add backend/migrations backend/models.py
-git commit -m "Add appointments table"
-git push
-```
-
-Never commit `.env`, local database files, passwords, or generated Python caches.
-
-## Verification checklist
-
-1. Run `docker compose build`.
-2. Run `docker compose up -d`.
-3. Confirm `docker compose ps` shows `db` as healthy.
-4. Run `docker compose exec api alembic upgrade head`.
-5. Confirm `docker compose ps` shows the API running.
-6. Open `/health` and confirm `{"status":"ok"}`.
-7. Open `/docs`.
-8. Test an authenticated endpoint such as `/departments/public` or `/employees` after login.
-9. Open the frontend at `/`.
-10. Confirm browser network requests use `http://localhost:8000` same-origin paths.
-11. Confirm tables appear in MySQL Workbench.
-12. Clone into a fresh directory and repeat the complete setup.
+1. Run `docker compose up -d --build`.
+2. Confirm `docker compose ps` shows MySQL as healthy and the API as running.
+3. Open `/health` and confirm it returns `{"status":"ok"}`.
+4. Open `/docs` and confirm the grouped endpoints are visible.
+5. Sign in with a seeded account.
+6. Confirm `/users/me` returns the authenticated profile.
+7. Verify role-appropriate frontend navigation and API access.
+8. Confirm database tables and seed records in MySQL Workbench.
 
 ## Troubleshooting
 
-- **Cannot connect to MySQL / connection refused:** run `docker compose ps` and `docker compose logs db`; wait for the healthcheck. Inside the API container the host must be `db`, not `localhost`.
-- **Access denied:** ensure `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_ROOT_PASSWORD` match the first database initialization. If credentials were changed after the volume was created, reset with `docker compose down -v` or use the original credentials.
-- **Unknown database:** check `MYSQL_DATABASE` and recreate the volume if the database was initialized with a different name.
-- **API exits immediately:** run `docker compose logs api`; migration errors are intentionally not hidden. Fix the reported migration or environment error.
-- **Alembic cannot find the database URL:** ensure `.env` exists and contains `DATABASE_URL`, then rebuild with `docker compose up -d --build`.
-- **Alembic creates an empty migration:** import the changed model in `backend/models.py` or `backend/migrations/env.py`, confirm the database URL points to the intended database, and review the generated migration.
-- **Table already exists:** the baseline migration is idempotent for an existing legacy schema. For a database with a partial history, inspect `alembic current` before stamping or migrating. Do not delete shared data.
-- **Port 8000 is busy:** change the host side only, for example `8001:8000`, then open `http://localhost:8001`.
-- **Port 3307 is busy:** change the host side only, for example `3308:3306`, and use that port in Workbench. Keep the API's internal port at `3306`.
-- **CORS errors:** the normal Docker setup is same-origin and needs no broad CORS rule. For a separately served frontend, configure its exact origin in FastAPI and set `window.__HW_API_URL__` before the frontend modules load.
-- **Wrong API URL:** do not hard-code a teammate's IP. The frontend defaults to relative API paths; use `window.__HW_API_URL__` only for a separately hosted frontend.
-- **Database changes are not visible:** verify the active schema in Workbench, run `alembic upgrade head`, and check that the API and Workbench are using the same database.
-- **Containers run but API cannot reach `db`:** confirm the API is on the Compose network and that `DATABASE_URL` uses `@db:3306`, not `@localhost`.
-- **Old database volume conflicts with the new schema:** back up any needed data, then intentionally run `docker compose down -v` and rebuild. This permanently deletes only that local Compose volume.
+- **Docker cannot connect:** Start Docker Desktop and retry `docker compose up -d --build`.
+- **API cannot connect to MySQL:** Check `docker compose ps`, wait for the `db` health check, and ensure the API connection uses `@db:3306`.
+- **API exits during startup:** Run `docker compose logs api`; migration and seed errors are intentionally surfaced.
+- **Swagger is blank:** Rebuild the image with `docker compose up -d --build`. Swagger assets are expected at `/swagger-ui/swagger-ui-bundle.js` and `/swagger-ui/swagger-ui.css`.
+- **Port 8000 is busy:** Change only the host side, for example `8001:8000`, then use `http://localhost:8001`.
+- **Port 3307 is busy:** Change only the host side, for example `3308:3306`; keep the API's internal port at `3306`.
+- **Login fails after changing credentials:** MySQL volumes retain their original initialization credentials. Reset the local volume intentionally with `docker compose down -v`, then rebuild.
+- **Frontend shows authorization errors:** Sign in first and verify the browser has the `hw_access_token` cookie. Confirm the account role and department selection.
 
-## Security and data-loss warnings
+## Project Documentation
 
-- Replace the example passwords and `SECRET_KEY` for any shared or deployed environment.
-- Do not expose MySQL publicly in production.
-- Host port `3307` is for local Workbench access only.
-- Review every autogenerated migration before committing it.
-- `docker compose down -v` permanently deletes local database data.
-- The local SQLite `backend/hardware_world.db` file is not the Docker database and is ignored by Git.
+- [PERMISSION_MATRIX.md](PERMISSION_MATRIX.md): current role, table, and operation matrix.
+- [ISSUE_3_IMPLEMENTATION.md](ISSUE_3_IMPLEMENTATION.md): historical authentication and access-control implementation notes.
+- [ISSUE_3_QUICK_START.md](ISSUE_3_QUICK_START.md): historical Issue 3 testing notes.
+- [docker-compose.yml](docker-compose.yml): local service topology and environment wiring.
 
-## Assumptions and manual review
+The Issue 3 documents contain material from an earlier Supabase/Next.js direction and are retained as project history. They are not the startup instructions for the current FastAPI/MySQL application; use this README and the source files under `backend/` and `frontend/` as the active implementation reference.
 
-Assumptions made: the existing synchronous SQLAlchemy models remain authoritative; FastAPI continues serving the static frontend; MySQL 8 is available through Docker; and the current seed data is appropriate for a newly initialized local database.
+## Security Notes
 
-Before committing, manually inspect `docker-compose.yml`, `.env.example`, `backend/database.py`, `backend/migrations/env.py`, `backend/migrations/versions/0001_initial_schema.py`, `backend/seed.py`, and the generated Docker logs. Confirm the baseline matches the intended schema and that no credentials are committed.
+- Replace all example passwords and `SECRET_KEY` values before shared or production use.
+- Do not expose MySQL's host port publicly.
+- Do not commit `.env`, database files, generated Python caches, or credentials.
+- Review every migration before applying it to a shared database.
+- `docker compose down -v` permanently deletes the local MySQL volume.
