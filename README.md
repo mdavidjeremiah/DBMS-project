@@ -69,19 +69,15 @@ No local Python, MySQL, or Node.js installation is required when using Docker Co
 Copy the environment template into a local, uncommitted `.env` file at the repository root:
 
 Linux/macOS:
-
 ```bash
 cp .env.example .env
 ```
-
 Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
 ```
-
 The default local settings use:
-
 ```env
 MYSQL_DATABASE=hardware_world
 MYSQL_USER=hw_user
@@ -96,9 +92,7 @@ Docker Compose converts these values into the API's internal connection string. 
 Never commit `.env`, passwords, API keys, or production secrets.
 
 ## Run With Docker
-
 Build and start the complete stack:
-
 ```bash
 docker compose up -d --build
 ```
