@@ -1,18 +1,12 @@
 import { money } from './ui.js';
 import { icons } from './icons.js';
 
-const DEFAULT_DATA = [
-  { date: '2026-09-07', label: 'Mon, Sep 7', salesRevenue: 2850000, transactions: 14 },
-  { date: '2026-09-08', label: 'Tue, Sep 8', salesRevenue: 4120000, transactions: 22 },
-  { date: '2026-09-09', label: 'Wed, Sep 9', salesRevenue: 3650000, transactions: 19 },
-  { date: '2026-09-10', label: 'Thu, Sep 10', salesRevenue: 5400000, transactions: 28 },
-  { date: '2026-09-11', label: 'Fri, Sep 11', salesRevenue: 6980000, transactions: 36 },
-  { date: '2026-09-12', label: 'Sat, Sep 12', salesRevenue: 8250000, transactions: 44 },
-  { date: '2026-09-13', label: 'Sun, Sep 13 (Today)', salesRevenue: 7420000, transactions: 38 },
-];
-
 export function renderGraph(container, initialData) {
-  const data = initialData?.length ? initialData : DEFAULT_DATA;
+  const data = initialData ?? [];
+  if (!data.length) {
+    container.innerHTML = '<div class="card"><p class="muted center">No sales data has been entered yet.</p></div>';
+    return;
+  }
   let metric = 'salesRevenue';
   const width = 800;
   const height = 300;
@@ -107,12 +101,10 @@ export function buildGraphData(sales) {
     d.setDate(now.getDate() - (6 - i));
     return d;
   });
-  let hasRealSales = false;
   const graphData = days.map((d) => {
     const dateStr = d.toISOString().split('T')[0];
     const daySales = sales.filter((s) => s.saledate && s.saledate.startsWith(dateStr));
     const rev = daySales.reduce((sum, s) => sum + Number(s.totalamount || 0), 0);
-    if (rev > 0) hasRealSales = true;
     return {
       date: dateStr,
       label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
@@ -120,5 +112,5 @@ export function buildGraphData(sales) {
       transactions: daySales.length,
     };
   });
-  return hasRealSales ? graphData : DEFAULT_DATA;
+  return graphData;
 }

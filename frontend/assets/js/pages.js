@@ -52,7 +52,6 @@ export async function renderDashboard(page) {
       ${metric('Pending Purchase Orders', String(stats.pendingOrders), 'Awaiting officer sign-off')}
       ${metric('Total Staff in System', String(stats.employeeCount), 'Across all 6 departments')}
     </section>
-    ${isAdmin ? deptHub() : ''}
     <section class="grid-2">
       ${liveList('Recent Point-of-Sale Transactions', 'sales.html', latestSales.length ? latestSales.map((sale) => listRow(`Sale #${sale.saleid}`, `${sale.customer_name} · Cashier: ${sale.cashier_name}`, money(sale.totalamount))).join('') : empty('No recent sales found.'))}
       ${liveList('Recent Procurement Purchase Orders', 'purchase-orders.html', latestOrders.length ? latestOrders.map((order) => listRow(`PO #${order.po_id}`, `${order.supplier_name} · Officer: ${order.officer_name}`, `<span class="badge">${order.status}</span>`)).join('') : empty('No recent purchase orders found.'))}
@@ -79,36 +78,16 @@ function empty(text) {
   return `<p class="muted center">${text}</p>`;
 }
 
-function deptHub() {
-  const depts = [
-    ['Sales & POS', 'Cashier', 'Manages point-of-sale checkout, customer receipts, and daily sales intake.', 'sales.html', 'Cashier Portal'],
-    ['Procurement & Inventory', 'Procurement Officer', 'Issues supplier purchase orders, product restocking, and vendor catalogs.', 'purchase-orders.html', 'Inventory Control'],
-    ['Finance & Accounting', 'Accountant', 'Maintains double-entry ledgers, payroll debit entries, and transaction journals.', 'ledger.html', 'Financial Ledger'],
-    ['Human Resources', 'HR Staff', 'Oversees employee staffing records, salary adjustments, and monthly payroll cycles.', 'employees.html', 'Staff & Payroll'],
-    ['Operations & Branch', 'Branch Manager', 'Branch performance metrics, localized staff tracking, and multi-dept oversight.', 'products.html', 'Store Operations'],
-    ['Administration', 'Admin (Akena)', 'Master system administration, employee account provisioning, and access policies.', 'settings.html', 'Full Clearance'],
-  ];
-  return `<section class="card"><div class="page-head"><div><h2>Departmental Access Control Hub</h2><p class="muted">All 6 departments managed under ABAC policies</p></div><span class="badge">ABAC Enforced</span></div><div class="grid-3">${depts.map(([name, role, desc, href, count]) => `<a class="dept-card" href="${href}"><div class="page-head"><h3>${name}</h3><span class="kicker">${count}</span></div><span class="muted">Role: ${role}</span><p class="muted">${desc}</p></a>`).join('')}</div></section>`;
-}
-
 export async function renderLogin() {
-  const FALLBACK = [
-    { departmentid: 1, departmentname: 'Sales & POS' },
-    { departmentid: 2, departmentname: 'Procurement & Inventory' },
-    { departmentid: 3, departmentname: 'Finance & Accounting' },
-    { departmentid: 4, departmentname: 'Human Resources' },
-    { departmentid: 5, departmentname: 'Operations & Branch Management' },
-    { departmentid: 6, departmentname: 'Administration' },
-  ];
-  let departments = FALLBACK;
+  let departments = [];
   try {
     const res = await fetch(`${API_URL}/departments/public`, { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data) && data.length) departments = data;
+      if (Array.isArray(data)) departments = data;
     }
   } catch {
-    /* fallback */
+    departments = [];
   }
 
   const staffDepts = departments.filter((d) => d.departmentname !== 'Administration');
@@ -128,7 +107,7 @@ export async function renderLogin() {
       <div id="auth-error" class="notice error hidden"></div>
       <form id="login-form" class="form-grid">
         <label class="field">Full Name or Email
-          <input class="control" name="username" required placeholder="e.g. Sarah Nakato or email">
+          <input class="control" name="username" required placeholder="Enter your name or email">
         </label>
         <div id="dept-field">
           <label class="field">Assigned Department (ABAC Verification)
@@ -143,14 +122,6 @@ export async function renderLogin() {
         </label>
         <button class="btn btn-primary" type="submit">Sign in as Staff Member</button>
       </form>
-      <hr>
-      <p class="kicker">Fast-Fill Test Credentials</p>
-      <div class="demo-grid">
-        <button class="demo-btn" data-fill="admin">Akena (Admin)<br><small>All Departments</small></button>
-        <button class="demo-btn" data-fill="sarah">Sarah Nakato<br><small>Sales & POS</small></button>
-        <button class="demo-btn" data-fill="john">John Kato<br><small>Procurement</small></button>
-        <button class="demo-btn" data-fill="grace">Grace Apio<br><small>Finance & Acc.</small></button>
-      </div>
       <p class="muted center">User accounts are created exclusively by the System Administrator.<br><a href="signup.html">Inquire about account provisioning →</a></p>
     </div>
   `;
@@ -165,22 +136,6 @@ export async function renderLogin() {
     form.querySelector('button[type=submit]').textContent = `Sign in as ${type === 'admin' ? 'Administrator' : 'Staff Member'}`;
   };
   root.querySelectorAll('.switcher button').forEach((btn) => btn.addEventListener('click', () => setType(btn.dataset.type)));
-
-  const fills = {
-    admin: ['admin', 'Akena', 'adminpassword', 'Administration'],
-    sarah: ['staff', 'Sarah Nakato', 'staff123', 'Sales & POS'],
-    john: ['staff', 'John Kato', 'staff123', 'Procurement & Inventory'],
-    grace: ['staff', 'Grace Apio', 'staff123', 'Finance & Accounting'],
-  };
-  root.querySelectorAll('[data-fill]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const [type, user, pass, dept] = fills[btn.dataset.fill];
-      setType(type);
-      form.username.value = user;
-      form.password.value = pass;
-      if (form.department) form.department.value = dept;
-    });
-  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
