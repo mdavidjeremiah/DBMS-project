@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Logs - Hardware World</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script type="module">
+    import { requireAuth } from './assets/js/auth.js';
+    import { initShell } from './assets/js/shell.js';
+    import { apiRequest } from './assets/js/api.js';
+
+    const user = await requireAuth();
+    if (!user) throw new Error('Authentication failed');
+    if (user.roletype !== 'Admin') throw new Error('Administrator access is required');
+    initShell(user);
+
+    const app = document.getElementById('app');
+    const page = document.createElement('main');
+    page.className = 'page-content space-y-6';
+    page.innerHTML = `
+      <header>
+        <div class="kicker"><i data-lucide="clipboard-list"></i> Administration</div>
+        <h1 class="text-3xl font-bold tracking-tight">Activity Logs</h1>
+        <p class="text-muted-foreground mt-1">Review authentication, protected-page, and database activity across the system.</p>
+      </header>
+      <section class="card p-0 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-border"><strong>Newest activity first</strong><span class="muted" id="log-count"></span></div>
+        <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Details</th><th>IP Address</th></tr></thead><tbody id="audit-log-rows"><tr><td colspan="5" class="muted">Loading activity logs…</td></tr></tbody></table></div>
+        <div class="flex items-center justify-between p-4 border-t border-border"><button class="btn btn-outline" id="previous-page">Previous</button><span class="muted" id="page-status"></span><button class="btn btn-outline" id="next-page">Next</button></div>
+      </section>
+    `;
+    app.appendChild(page);
+
+    let currentPage = 1;
+    let total = 0;
+    const pageSize = 25;
+    const rows = document.getElementById('audit-log-rows');
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+    const formatTimestamp = (value) => value ? new Date(`${value}Z`).toLocaleString() : '—';
+
+    async function loadLogs() {
+      rows.innerHTML = '<tr><td colspan="5" class="muted">Loading activity logs…</td></tr>';
+      const params = new URLSearchParams({ page: currentPage, page_size: pageSize });
+      try {
+        const result = await apiRequest(`/audit-logs?${params.toString()}`);
+        total = result.total;
+        rows.innerHTML = result.items.length ? result.items.map((log) => `<tr><td>${escapeHtml(formatTimestamp(log.timestamp))}</td><td>${escapeHtml(log.username_or_email || 'Unauthenticated')}</td><td><span class="badge">${escapeHtml(log.action)}</span></td><td>${escapeHtml(log.details || '—')}</td><td>${escapeHtml(log.ip_address || '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="muted">No activity matches the current filters.</td></tr>';
+        document.getElementById('log-count').textContent = `${total} log${total === 1 ? '' : 's'}`;
+        document.getElementById('page-status').textContent = `Page ${currentPage} of ${Math.max(1, Math.ceil(total / pageSize))}`;
+        document.getElementById('previous-page').disabled = currentPage === 1;
+        document.getElementById('next-page').disabled = currentPage * pageSize >= total;
+      } catch (error) {
+        rows.innerHTML = `<tr><td colspan="5" class="text-destructive">${escapeHtml(error.message || 'Unable to load activity logs.')}</td></tr>`;
+      }
+    }
+
+    document.getElementById('previous-page').addEventListener('click', () => { if (currentPage > 1) { currentPage -= 1; loadLogs(); } });
+    document.getElementById('next-page').addEventListener('click', () => { if (currentPage * pageSize < total) { currentPage += 1; loadLogs(); } });
+    await loadLogs();
+    window.lucide?.createIcons();
+  </script>
+</body>
+</html>

@@ -87,12 +87,24 @@ export async function requireAuth() {
       
       return null; // Prevent further rendering
     }
+
+    // Record protected page visits without delaying the interface.
+    void apiRequest('/audit/page-view', {
+      method: 'POST',
+      body: JSON.stringify({ page: pathToCheck }),
+    }).catch(() => {});
   
     return user;
   }
   
   /** Sign out the user and redirect to login */
-  export function signOut() {
-    clearAccessToken();
-    window.location.replace('/login.html');
+  export async function signOut() {
+    try {
+      await apiRequest('/logout', { method: 'POST' });
+    } catch (_) {
+      // Local sign-out must still work if the server is unavailable.
+    } finally {
+      clearAccessToken();
+      window.location.replace('/login.html');
+    }
   }
