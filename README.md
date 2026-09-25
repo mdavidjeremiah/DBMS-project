@@ -253,14 +253,6 @@ Do not run `down -v` unless losing the local database is acceptable.
 - **Login fails after changing credentials:** MySQL volumes retain their original initialization credentials. Reset the local volume intentionally with `docker compose down -v`, then rebuild.
 - **Frontend shows authorization errors:** Sign in first and verify the browser has the `hw_access_token` cookie. Confirm the account role and department selection.
 
-## Project Documentation
-
-- [PERMISSION_MATRIX.md](PERMISSION_MATRIX.md): current role, table, and operation matrix.
-- [ISSUE_3_IMPLEMENTATION.md](ISSUE_3_IMPLEMENTATION.md): historical authentication and access-control implementation notes.
-- [ISSUE_3_QUICK_START.md](ISSUE_3_QUICK_START.md): historical Issue 3 testing notes.
-- [docker-compose.yml](docker-compose.yml): local service topology and environment wiring.
-
-The Issue 3 documents contain material from an earlier Supabase/Next.js direction and are retained as project history. They are not the startup instructions for the current FastAPI/MySQL application; use this README and the source files under `backend/` and `frontend/` as the active implementation reference.
 
 ## Security Notes
 
