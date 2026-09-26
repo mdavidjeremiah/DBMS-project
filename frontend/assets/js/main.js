@@ -26,7 +26,7 @@ async function boot() {
   const page = document.getElementById('page');
 
   if (pageName === 'dashboard') await renderDashboard(page);
-  else if (pageName === 'sales') await renderSales(page);
+  else if (pageName === 'sales') await renderSales(page, session.user);
   else if (pageName === 'employees') await renderEmployees(page);
   else if (pageName === 'settings') await renderSettings(page);
   else if (CRUD_PAGES[pageName]) await renderCrud(page, CRUD_PAGES[pageName]);
