@@ -111,6 +111,7 @@ export function initShell(user) {
   // --- Initialize Nav Links ---
   const navItems = [
     { label: 'Dashboard', icon: 'layout-dashboard', href: '/index.html', group: 'nav-operations' },
+    { label: 'Logs', icon: 'clipboard-list', href: '/audit-logs.html', group: 'nav-operations' },
     { label: 'Sales & POS', icon: 'shopping-cart', href: '/sales.html', group: 'nav-operations' },
     { label: 'Purchase Orders', icon: 'file-text', href: '/purchase-orders.html', group: 'nav-operations' },
     { label: 'Suppliers', icon: 'truck', href: '/suppliers.html', group: 'nav-operations' },

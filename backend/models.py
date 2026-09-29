@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime, Numeric
+from sqlalchemy import Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime, Numeric, Text
 from sqlalchemy.orm import relationship
 import enum
 from database import Base
@@ -172,3 +172,17 @@ class LedgerEntry(Base):
     payrollid = Column(Integer, ForeignKey("payroll.payrollid"), nullable=True)
     amount = Column(Numeric(12, 2), nullable=False)
     recordedby = Column(Integer, ForeignKey("employee.employeeid"))
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    auditlogid = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("employee.employeeid", ondelete="SET NULL"), nullable=True, index=True)
+    username_or_email = Column(String(100), nullable=True, index=True)
+    action = Column(String(64), nullable=False, index=True)
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("Employee", foreign_keys=[user_id])

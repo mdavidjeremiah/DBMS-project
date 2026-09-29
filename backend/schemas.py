@@ -123,3 +123,27 @@ class EmployeeCreate(BaseModel):
     certificationnumber: Optional[str] = None
     hr_role: Optional[str] = None
     managementlevel: Optional[str] = None
+
+
+class AuditPageView(BaseModel):
+    page: str
+
+
+class AuditLogResponse(BaseModel):
+    auditlogid: int
+    user_id: Optional[int] = None
+    username_or_email: Optional[str] = None
+    action: str
+    details: Optional[str] = None
+    ip_address: Optional[str] = None
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogPage(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
+    page: int
+    page_size: int
