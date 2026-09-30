@@ -15,7 +15,7 @@ export function currentTheme() {
 export function mountShell(root, user, pageHtml) {
   applyTheme(currentTheme());
   const role = user.roletype || 'Staff';
-  const nav = visibleNav(role)
+  const nav = visibleNav(role, user.permissions || [])
     .map((item) => {
       const active = item.href === currentPageFile();
       return `<a class="nav-link ${active ? 'active' : ''}" href="${item.href}">${NAV_ICONS[item.page] || ''}<span>${item.title}</span></a>`;

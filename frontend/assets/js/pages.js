@@ -200,7 +200,7 @@ export const CRUD_PAGES = {
     endpoint: '/api/purchase-orders',
     kicker: 'Procurement',
     title: 'Purchase Orders',
-    subtitle: 'Live purchase orders and their assigned officers.',
+    subtitle: 'Purchase orders require an approved requisition and a separate approver.',
     searchKey: 'supplier_name',
     columns: [
       { header: 'PO #', key: 'po_id', sortable: true },
@@ -213,10 +213,10 @@ export const CRUD_PAGES = {
     create: {
       trigger: 'Create PO',
       title: 'Create purchase order',
-      description: 'Issue an order using live supplier and employee records.',
+      description: 'Issue an order from a requisition after a manager approves it.',
       submit: 'Issue order',
-      fields: field('supplierid', 'Supplier ID', 'type="number" min="1" required') + field('employeeid', 'Officer employee ID', 'type="number" min="1" required'),
-      submitFn: (form) => apiRequest('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), employeeid: Number(form.get('employeeid')), status: 'Pending' }) }),
+      fields: field('supplierid', 'Supplier ID', 'type="number" min="1" required') + field('requisition_id', 'Approved requisition ID', 'type="number" min="1" required'),
+      submitFn: (form) => apiRequest('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), requisition_id: Number(form.get('requisition_id')) }) }),
     },
   },
   payroll: {
@@ -250,17 +250,18 @@ export const CRUD_PAGES = {
   },
 };
 
-export async function renderSales(page) {
-  const user = getCurrentUser() || window.__HW_USER__;
-  const [sales, products, branches] = await Promise.all([
-    loadList('/api/sales'),
-    loadList('/api/products'),
-    loadList('/api/branches'),
+export async function renderSales(page, user = window.__HW_USER__) {
+  const [sales, products] = await Promise.all([
+    loadList('/sales'),
+    loadList('/products'),
   ]);
-
-  // Check permission
-  const hasPOS = can('sales:pos');
-
+  const cashiers = [user].filter(Boolean);
+  const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
+  const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  let cashierSession = null;
+  if (canSell) {
+    try { cashierSession = await apiRequest('/cashier-sessions/current'); } catch { cashierSession = null; }
+  }
   page.innerHTML = `
     <header class="page-head card">
       <div>
@@ -270,17 +271,14 @@ export async function renderSales(page) {
       </div>
       ${hasPOS ? `<button class="btn btn-primary" id="open-session-btn">Open Session</button>` : ''}
     </header>
-    ${hasPOS ? `
-    <form id="pos" class="pos-grid">
+    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
+    ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
+    <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
       <section class="card">
         <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
           <select class="control" id="product-select" style="flex:1">
-            <option value="">Search / select a product</option>
-            ${products.data.filter(p => p.is_active !== false).map((p) =>
-              `<option value="${p.itemid}" data-price="${p.unitprice}" data-stock="${p.available_stock || 0}">
-                ${p.itemname} · UGX ${Number(p.unitprice).toLocaleString()} · Stock: ${p.available_stock || 0}
-              </option>`
-            ).join('')}
+            <option value="">Select a product</option>
+            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
           </select>
           <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
         </div>
@@ -301,18 +299,41 @@ export async function renderSales(page) {
             <option value="CREDIT">Customer Credit</option>
           </select>
         </label>
-        <input class="control" name="customername" placeholder="Customer name (optional)">
-        <input class="control" name="customerphone" placeholder="Phone number (optional)">
+        <input class="control" name="customername" placeholder="Customer name">
+        <input class="control" name="customerphone" placeholder="Phone number">
+        <label class="field">Payment method<select class="control" name="payment_method"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
         <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
         <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete Sale</button>
       </aside>
-    </form>` : `<div class="card" style="padding:2rem;text-align:center"><p class="muted">🔒 You do not have POS sales permission.</p></div>`}
+    </form>
+    <section id="receipt" class="notice hidden" aria-live="polite"></section>
     <div id="notice"></div>
     <div id="table"></div>
   `;
-
   showNotice(page.querySelector('#notice'), sales.error || products.error);
-
+  const savedReceipt = sessionStorage.getItem('hw_last_receipt');
+  if (savedReceipt) {
+    try {
+      const receiptData = JSON.parse(savedReceipt);
+      const receipt = page.querySelector('#receipt');
+      receipt.classList.remove('hidden');
+      receipt.textContent = `Sale #${receiptData.saleid} completed · Total ${money(receiptData.totalamount)} · COGS ${money(receiptData.cogs)} · Gross profit ${money(receiptData.gross_profit)}`;
+      const printButton = document.createElement('button');
+      printButton.className = 'btn btn-outline';
+      printButton.textContent = 'Print receipt';
+      printButton.addEventListener('click', () => window.print());
+      receipt.appendChild(printButton);
+      sessionStorage.removeItem('hw_last_receipt');
+    } catch { sessionStorage.removeItem('hw_last_receipt'); }
+  }
+  page.querySelector('#open-cashier-session')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
+      window.location.reload();
+    } catch (error) { showNotice(page.querySelector('#notice'), error.message); }
+  });
   renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Receipt #', key: 'saleid', sortable: true },
@@ -337,16 +358,7 @@ export async function renderSales(page) {
     } else {
       box.innerHTML = lines.map((line) => {
         const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}">
-          <div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each</div></div>
-          <div class="qty">
-            <button type="button" data-dec>−</button>
-            <span>${line.quantity}</span>
-            <button type="button" data-inc>+</button>
-          </div>
-          <strong>${money(product.unitprice * line.quantity)}</strong>
-          <button type="button" data-del style="color:var(--destructive)">&times;</button>
-        </div>`;
+        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
       }).join('');
     }
     const total = lines.reduce((sum, line) => {
@@ -363,12 +375,8 @@ export async function renderSales(page) {
     const opt = sel.querySelector(`option[value="${itemid}"]`);
     const stock = parseFloat(opt?.dataset.stock || 0);
     const existing = lines.find((l) => l.itemid === itemid);
-    const qty = existing ? existing.quantity + 1 : 1;
-    if (qty > stock) {
-      showNotice(page.querySelector('#notice'), `Insufficient stock. Available: ${stock}`);
-      return;
-    }
-    if (existing) existing.quantity += 1;
+    const selectedProduct = products.data.find((p) => p.itemid === itemid);
+    if (existing) existing.quantity = Math.min(Number(selectedProduct.stock_qty), existing.quantity + 1);
     else lines.push({ itemid, quantity: 1 });
     sel.value = '';
     showNotice(page.querySelector('#notice'), null);
@@ -379,16 +387,29 @@ export async function renderSales(page) {
     const row = event.target.closest('.line');
     if (!row) return;
     const line = lines.find((l) => l.itemid === Number(row.dataset.id));
-    if (!line) return;
-    if (event.target.closest('[data-inc]')) line.quantity += 1;
-    else if (event.target.closest('[data-dec]')) line.quantity -= 1;
-    else if (event.target.closest('[data-del]')) line.quantity = 0;
-    if (line.quantity < 1) {
-      lines.splice(lines.findIndex((l) => l.itemid === line.itemid), 1);
+    if (event.target.closest('[data-inc]')) {
+      const product = products.data.find((p) => p.itemid === line.itemid);
+      line.quantity = Math.min(Number(product.stock_qty), line.quantity + 1);
+    }
+    if (event.target.closest('[data-dec]')) line.quantity -= 1;
+    if (event.target.closest('[data-del]') || line.quantity < 1) {
+      const idx = lines.findIndex((l) => l.itemid === line.itemid);
+      lines.splice(idx, 1);
     }
     paintLines();
   });
-
+  page.querySelector('#lines').addEventListener('change', (event) => {
+    if (!event.target.matches('input[type="number"]')) return;
+    const row = event.target.closest('.line');
+    const line = lines.find((item) => item.itemid === Number(row.dataset.id));
+    const product = products.data.find((item) => item.itemid === line.itemid);
+    const quantity = Number(event.target.value);
+    line.quantity = Number.isFinite(quantity) && quantity > 0
+      ? Math.min(quantity, Number(product.stock_qty))
+      : 0;
+    if (!line.quantity) lines.splice(lines.indexOf(line), 1);
+    paintLines();
+  });
   page.querySelector('#pos').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.target;
@@ -397,9 +418,7 @@ export async function renderSales(page) {
     btn.disabled = true;
     btn.textContent = 'Processing…';
     try {
-      // Generate a simple idempotency key
-      const ikey = `POS-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await apiRequest('/api/sales', {
+      const receipt = await apiRequest('/sales', {
         method: 'POST',
         headers: { 'Idempotency-Key': ikey },
         body: JSON.stringify({
@@ -408,11 +427,10 @@ export async function renderSales(page) {
           employeeid: user.employeeid,
           branchid: Number(form.branchid.value),
           payment_method: form.payment_method.value,
-          idempotency_key: ikey,
           items: lines.map((line) => ({ itemid: line.itemid, quantity: line.quantity })),
         }),
       });
-      showNotice(noticeEl, null);
+      sessionStorage.setItem('hw_last_receipt', JSON.stringify(receipt));
       window.location.reload();
     } catch (error) {
       showNotice(noticeEl, error.message);

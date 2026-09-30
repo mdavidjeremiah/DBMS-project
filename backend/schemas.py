@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Literal
 from datetime import date, datetime
 from decimal import Decimal
 from models import RoleType, POStatus, LedgerSourceType
@@ -9,6 +9,7 @@ from models import RoleType, POStatus, LedgerSourceType
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: Optional[dict] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
@@ -117,156 +118,40 @@ class SupplierCreate(BaseModel):
 
 class SupplyLinkCreate(BaseModel):
     supplierid: int
-    itemid: int
-    costprice: Decimal
-    leadtimedays: Optional[int] = 7
-
-class InventoryBalanceResponse(BaseModel):
-    balance_id: int
-    item_id: int
-    item_name: Optional[str] = None
-    warehouse_id: int
-    warehouse_name: Optional[str] = None
-    available_stock: Decimal
-    reserved_stock: Decimal
-    reorder_level: Optional[int] = 0
-    critical_level: Optional[int] = 0
-    is_low_stock: bool = False
-    is_critical: bool = False
-    class Config:
-        from_attributes = True
-
-class StockAdjustmentCreate(BaseModel):
-    warehouse_id: int
-    item_id: int
-    variance_quantity: Decimal # can be negative (shrinkage) or positive (found)
-    reason_code: str # Damage, Theft suspected, Loss, Counting error, Data-entry error, Expired stock, Supplier discrepancy, Found stock, Unknown
-    notes: Optional[str] = None
-
-class StocktakeItemCreate(BaseModel):
-    item_id: int
-    physical_quantity: Decimal
-
-class StocktakeCreate(BaseModel):
-    warehouse_id: int
-    notes: Optional[str] = None
-    items: List[StocktakeItemCreate]
-
-# --- Sales & POS Schemas ---
-
-class SaleItemCreate(BaseModel):
-    itemid: int
-    quantity: Decimal = Field(gt=0, description="Quantity must be strictly greater than zero")
-
-class SaleCreate(BaseModel):
-    customerid: Optional[int] = None
-    customername: Optional[str] = None
-    customerphone: Optional[str] = None
-    employeeid: int
-    branchid: int
-    warehouseid: Optional[int] = None
-    cashiersessionid: Optional[int] = None
-    payment_method: Optional[str] = "CASH" # CASH, MOBILE_MONEY, CARD, CREDIT
-    payment_amount: Optional[Decimal] = None
-    idempotency_key: Optional[str] = None
-    items: List[SaleItemCreate]
-
-class CashierSessionCreate(BaseModel):
-    branch_id: int
-    warehouse_id: Optional[int] = None
-    opening_float: Decimal = Field(ge=0, default=Decimal("0"))
-
-class CashierSessionClose(BaseModel):
-    actual_cash: Decimal = Field(ge=0)
-    notes: Optional[str] = None
-
-class SalesReturnCreate(BaseModel):
-    sale_id: int
-    reason: str
-    refund_amount: Optional[Decimal] = None
-
-# --- Procurement Schemas ---
-
-class PurchaseOrderItemCreate(BaseModel):
-    item_id: int
-    quantity: Decimal = Field(gt=0)
-    unit_price: Decimal = Field(ge=0)
-
-class PurchaseOrderCreate(BaseModel):
-    supplierid: int
-    employeeid: int
-    branchid: Optional[int] = None
+    employeeid: Optional[int] = None
+    requisition_id: Optional[int] = None
     status: POStatus = POStatus.PENDING
-    items: Optional[List[PurchaseOrderItemCreate]] = None
 
-class PurchaseRequisitionItemCreate(BaseModel):
-    item_id: int
-    quantity: Decimal = Field(gt=0)
-    estimated_unit_price: Optional[Decimal] = Decimal("0")
+class RequisitionItemCreate(BaseModel):
+    itemid: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    estimated_unit_cost: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
 
 class PurchaseRequisitionCreate(BaseModel):
-    branch_id: int
     notes: Optional[str] = None
-    items: List[PurchaseRequisitionItemCreate]
+    items: List[RequisitionItemCreate]
 
-class GoodsReceivedNoteItemCreate(BaseModel):
-    item_id: int
-    quantity_received: Decimal = Field(gt=0)
-    unit_cost: Optional[Decimal] = None
+class ApprovalDecision(BaseModel):
+    reason: Optional[str] = None
 
-class GoodsReceivedNoteCreate(BaseModel):
+class GRNItemCreate(BaseModel):
+    po_item_id: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+
+class GRNCreate(BaseModel):
     po_id: int
-    warehouse_id: int
-    grn_number: Optional[str] = None
-    notes: Optional[str] = None
-    items: List[GoodsReceivedNoteItemCreate]
+    items: List[GRNItemCreate]
 
 class SupplierInvoiceCreate(BaseModel):
-    supplier_id: int
-    po_id: Optional[int] = None
-    grn_id: Optional[int] = None
     invoice_number: str
-    invoice_amount: Decimal = Field(gt=0)
-    due_date: Optional[date] = None
+    po_id: int
+    grn_id: int
+    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
 
 class SupplierPaymentCreate(BaseModel):
     invoice_id: int
-    amount: Decimal = Field(gt=0)
-    payment_method: Optional[str] = "BANK"
-
-# --- Customer Credit Schemas ---
-
-class CustomerCreditAccountCreate(BaseModel):
-    customer_id: int
-    credit_limit: Decimal = Field(ge=0)
-
-class CustomerPaymentCreate(BaseModel):
-    customer_id: int
-    amount: Decimal = Field(gt=0)
-    payment_method: Optional[str] = "CASH"
-
-# --- HR & Payroll Schemas ---
-
-class EmployeeSalaryStructureCreate(BaseModel):
-    employee_id: int
-    basic_salary: Decimal = Field(ge=0)
-    transport_allowance: Optional[Decimal] = Decimal("0")
-    overtime_rate: Optional[Decimal] = Decimal("0")
-    standard_deductions: Optional[Decimal] = Decimal("0")
-
-class AttendanceRecordCreate(BaseModel):
-    employee_id: int
-    date: date
-    status: str = "PRESENT" # PRESENT, ABSENT, ON_LEAVE
-    check_in: Optional[datetime] = None
-    check_out: Optional[datetime] = None
-    overtime_hours: Optional[Decimal] = Decimal("0")
-
-class LeaveRequestCreate(BaseModel):
-    employee_id: int
-    leave_type: str # Annual, Sick, Maternity, etc.
-    start_date: date
-    end_date: date
+    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    payment_method: Literal["cash", "bank", "mobile_money"] = "bank"
 
 class PayrollCreate(BaseModel):
     employeeid: int
@@ -274,11 +159,29 @@ class PayrollCreate(BaseModel):
     grosspay: Decimal
     deductions: Decimal = Decimal("0")
 
-class PayrollRunCreate(BaseModel):
-    month: str # e.g. "2026-09"
+class SaleItemCreate(BaseModel):
+    itemid: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
 
-class PayrollRunApprove(BaseModel):
-    run_id: int
+class SaleCreate(BaseModel):
+    customerid: Optional[int] = None
+    customername: Optional[str] = None
+    customerphone: Optional[str] = None
+    # Retained as optional for compatibility. The API derives these from JWT.
+    employeeid: Optional[int] = None
+    branchid: Optional[int] = None
+    payment_method: Literal["cash", "card", "mobile_money"] = "cash"
+    items: List[SaleItemCreate]
+
+class CashierSessionOpen(BaseModel):
+    opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+
+class LedgerCreate(BaseModel):
+    sourcetype: LedgerSourceType
+    saleid: Optional[int] = None
+    payrollid: Optional[int] = None
+    amount: Decimal
+    recordedby: int
 
 class EmployeeCreate(BaseModel):
     name: str
