@@ -2,80 +2,13 @@ import { apiRequest, API_URL, loadList } from './api.js';
 import { field, money, openDialog, renderTable, selectField, showNotice } from './ui.js';
 import { icons } from './icons.js';
 import { buildGraphData, renderGraph } from './graph.js';
+import { getCurrentUser, can } from './permissions.js';
 
+// Legacy renderDashboard is now delegated to dashboard.js
+// This stub satisfies any stale imports.
 export async function renderDashboard(page) {
-  const [sales, orders, employees, products] = await Promise.all([
-    loadList('/sales'),
-    loadList('/purchase-orders'),
-    loadList('/employees'),
-    loadList('/products'),
-  ]);
-  const today = new Date().toDateString();
-  const salesToday = sales.data.filter((sale) => new Date(sale.saledate).toDateString() === today);
-  const stats = {
-    salesToday: salesToday.reduce((sum, sale) => sum + Number(sale.totalamount || 0), 0),
-    salesCount: salesToday.length,
-    pendingOrders: orders.data.filter((order) => order.status === 'Pending').length,
-    employeeCount: employees.data.length,
-    productCount: products.data.length,
-  };
-  const user = window.__HW_USER__;
-  const isAdmin = user.roletype === 'Admin';
-  const userDept = user.department_name ?? (isAdmin ? 'Administration' : 'General Staff');
-  const latestSales = sales.data.slice(0, 5);
-  const latestOrders = orders.data.slice(0, 5);
-  const error = [sales.error, orders.error].filter(Boolean).join('; ') || null;
-
-  page.innerHTML = `
-    <header class="hero">
-      <div class="hero-row">
-        <div>
-          <div class="pills">
-            <span class="pill orange">${isAdmin ? icons.shield : icons.usercheck} ${isAdmin ? 'Admin Oversight Authority' : `${user.roletype} Scope`}</span>
-            <span class="pill slate">${userDept}</span>
-          </div>
-          <h1>Welcome back, ${user.name}</h1>
-          <p>${isAdmin ? 'Full cross-departmental RBAC & ABAC administrative oversight.' : `Assigned departmental workspace: ${userDept}.`}</p>
-        </div>
-        <div>
-          ${isAdmin ? `<a class="btn btn-primary" href="employees.html">${icons.plus} Provision New User</a>` : ''}
-          ${userDept === 'Sales & POS' ? `<a class="btn btn-primary" href="sales.html">Open POS Register</a>` : ''}
-          ${userDept === 'Procurement & Inventory' ? `<a class="btn btn-primary" href="purchase-orders.html">Create Purchase Order</a>` : ''}
-        </div>
-      </div>
-    </header>
-    <div id="notice"></div>
-    <div id="graph"></div>
-    <section class="grid-4">
-      ${metric('Sales Today', money(stats.salesToday), 'Processed in active branch')}
-      ${metric('Transactions Today', String(stats.salesCount), 'Customer checkout entries')}
-      ${metric('Pending Purchase Orders', String(stats.pendingOrders), 'Awaiting officer sign-off')}
-      ${metric('Total Staff in System', String(stats.employeeCount), 'Across all 6 departments')}
-    </section>
-    <section class="grid-2">
-      ${liveList('Recent Point-of-Sale Transactions', 'sales.html', latestSales.length ? latestSales.map((sale) => listRow(`Sale #${sale.saleid}`, `${sale.customer_name} · Cashier: ${sale.cashier_name}`, money(sale.totalamount))).join('') : empty('No recent sales found.'))}
-      ${liveList('Recent Procurement Purchase Orders', 'purchase-orders.html', latestOrders.length ? latestOrders.map((order) => listRow(`PO #${order.po_id}`, `${order.supplier_name} · Officer: ${order.officer_name}`, `<span class="badge">${order.status}</span>`)).join('') : empty('No recent purchase orders found.'))}
-    </section>
-    <p class="muted">${stats.productCount} active products in live database inventory.</p>
-  `;
-  showNotice(page.querySelector('#notice'), error);
-  renderGraph(page.querySelector('#graph'), buildGraphData(sales.data));
-}
-
-function metric(label, value, subtext) {
-  return `<div class="card"><div class="metric"><span class="muted">${label}</span><div class="metric-icon">${icons.activity}</div></div><strong>${value}</strong><p class="muted">${subtext}</p></div>`;
-}
-
-function liveList(title, href, body) {
-  return `<div class="card"><div class="page-head"><h2>${title}</h2><a href="${href}">View all →</a></div>${body}</div>`;
-}
-
-function listRow(title, sub, right) {
-  return `<div class="list-item"><span><strong>${title}</strong><div class="muted">${sub}</div></span><strong>${right}</strong></div>`;
-}
-
-function empty(text) {
-  return `<p class="muted center">${text}</p>`;
+  const { renderDashboard: renderDept } = await import('./dashboard.js');
+  await renderDept(page);
 }
 
 export async function renderLogin() {
@@ -199,25 +132,28 @@ export async function renderCrud(page, config) {
 
 export const CRUD_PAGES = {
   products: {
-    endpoint: '/products',
+    endpoint: '/api/products',
     kicker: 'Hardware catalogue',
     title: 'Products & Stock Inventory',
-    subtitle: 'Live product prices and reorder settings.',
+    subtitle: 'Live product prices, stock levels, and reorder settings.',
     searchKey: 'itemname',
     columns: [
-      { header: 'Item ID', key: 'itemid', sortable: true },
+      { header: 'ID', key: 'itemid', sortable: true },
       { header: 'Item Name', key: 'itemname', sortable: true },
       { header: 'Category', key: 'category_name', sortable: true },
+      { header: 'Unit', key: 'base_unit' },
       { header: 'Unit Price', key: 'unitprice', sortable: true, cell: (row) => money(row.unitprice) },
+      { header: 'Available Stock', key: 'available_stock', sortable: true },
       { header: 'Reorder Level', key: 'reorderlevel', sortable: true },
+      { header: 'Status', key: 'is_active', cell: (row) => row.is_active ? '<span style="color:var(--primary)">Active</span>' : '<span style="color:var(--destructive)">Inactive</span>' },
     ],
     create: {
       trigger: 'Add Product',
       title: 'Add product',
       description: 'Create a product in the live catalogue.',
       submit: 'Create product',
-      fields: field('itemname', 'Item name', 'required') + field('description', 'Description') + field('unitprice', 'Unit price (UGX)', 'type="number" min="0" required') + field('reorderlevel', 'Reorder level', 'type="number" min="0" required') + field('categoryid', 'Category ID', 'type="number" min="1" required'),
-      submitFn: (form) => apiRequest('/products', { method: 'POST', body: JSON.stringify({ itemname: form.get('itemname'), description: form.get('description') || null, unitprice: Number(form.get('unitprice')), reorderlevel: Number(form.get('reorderlevel')), categoryid: Number(form.get('categoryid')) }) }),
+      fields: field('itemname', 'Item name', 'required') + field('description', 'Description') + field('unitprice', 'Selling Price (UGX)', 'type="number" min="0" step="0.01" required') + field('costprice', 'Cost Price (UGX)', 'type="number" min="0" step="0.01" required') + field('reorderlevel', 'Reorder level (qty)', 'type="number" min="0" required') + field('categoryid', 'Category ID', 'type="number" min="1" required'),
+      submitFn: (form) => apiRequest('/api/products', { method: 'POST', body: JSON.stringify({ itemname: form.get('itemname'), description: form.get('description') || null, unitprice: Number(form.get('unitprice')), costprice: Number(form.get('costprice') || 0), reorderlevel: Number(form.get('reorderlevel')), categoryid: Number(form.get('categoryid')) }) }),
     },
   },
   categories: {
@@ -240,7 +176,7 @@ export const CRUD_PAGES = {
     },
   },
   suppliers: {
-    endpoint: '/suppliers',
+    endpoint: '/api/suppliers',
     kicker: 'Vendor directory',
     title: 'Suppliers & Manufacturers',
     subtitle: 'Live supplier records from the database.',
@@ -262,20 +198,21 @@ export const CRUD_PAGES = {
     },
   },
   'purchase-orders': {
-    endpoint: '/purchase-orders',
+    endpoint: '/api/purchase-orders',
     kicker: 'Procurement',
     title: 'Purchase Orders',
     subtitle: 'Live purchase orders and their assigned officers.',
     searchKey: 'supplier_name',
     columns: [
-      { header: 'Order ID', key: 'po_id', sortable: true },
+      { header: 'PO #', key: 'po_id', sortable: true },
       { header: 'Date', key: 'orderdate', sortable: true },
       { header: 'Supplier', key: 'supplier_name', sortable: true },
       { header: 'Officer', key: 'officer_name' },
+      { header: 'Total', key: 'total_amount', cell: (row) => money(row.total_amount) },
       { header: 'Status', key: 'status', sortable: true },
     ],
     create: {
-      trigger: 'Create Order',
+      trigger: 'Create PO',
       title: 'Create purchase order',
       description: 'Issue an order using live supplier and employee records.',
       submit: 'Issue order',
@@ -284,10 +221,10 @@ export const CRUD_PAGES = {
     },
   },
   payroll: {
-    endpoint: '/payroll',
+    endpoint: '/api/payroll',
     kicker: 'HR compensation',
     title: 'Payroll & Salary Accounting',
-    subtitle: 'Live payroll records linked to employees.',
+    subtitle: 'Payroll records — restricted to HR, Finance, and Management.',
     searchKey: 'employee_name',
     columns: [
       { header: 'Payroll ID', key: 'payrollid', sortable: true },
@@ -297,110 +234,101 @@ export const CRUD_PAGES = {
       { header: 'Deductions', key: 'deductions', cell: (row) => money(row.deductions) },
       { header: 'Net Pay', key: 'netpay', cell: (row) => money(row.netpay) },
     ],
-    create: {
-      trigger: 'Add Payroll',
-      title: 'Create payroll record',
-      description: 'Record payroll for one live employee.',
-      submit: 'Save payroll',
-      fields: field('employeeid', 'Employee ID', 'type="number" min="1" required') + field('month', 'Month', 'placeholder="2026-09" required') + field('grosspay', 'Gross pay', 'type="number" min="0" required') + field('deductions', 'Deductions', 'type="number" min="0" required'),
-      submitFn: (form) => {
-        const grosspay = Number(form.get('grosspay'));
-        const deductions = Number(form.get('deductions'));
-        if (deductions > grosspay) throw new Error('Deductions cannot exceed gross pay');
-        return apiRequest('/payroll', { method: 'POST', body: JSON.stringify({ employeeid: Number(form.get('employeeid')), month: form.get('month'), grosspay, deductions }) });
-      },
-    },
   },
   ledger: {
-    endpoint: '/ledger',
+    endpoint: '/api/journals',
     kicker: 'Accounting',
-    title: 'Master Accounting Ledger',
-    subtitle: 'Live entries sourced from sales and payroll.',
-    searchKey: 'source_label',
+    title: 'General Ledger Journals',
+    subtitle: 'Double-entry journal entries from all ERP modules.',
+    searchKey: 'description',
     columns: [
-      { header: 'Entry ID', key: 'entryid', sortable: true },
-      { header: 'Date', key: 'entrydate', sortable: true },
-      { header: 'Source', key: 'sourcetype' },
-      { header: 'Reference', key: 'source_label' },
-      { header: 'Recorded By', key: 'accountant_name' },
-      { header: 'Amount', key: 'amount', sortable: true, cell: (row) => money(row.amount) },
+      { header: 'Entry #', key: 'entry_number', sortable: true },
+      { header: 'Date', key: 'entry_date', sortable: true },
+      { header: 'Description', key: 'description' },
+      { header: 'Reference', key: 'reference_type' },
+      { header: 'Total', key: 'total_amount', cell: (row) => money(row.total_amount) },
     ],
-    create: {
-      trigger: 'Add Entry',
-      title: 'Post ledger entry',
-      description: 'Link a ledger entry to an existing sale or payroll record.',
-      submit: 'Post entry',
-      fields: selectField('sourcetype', 'Source type', '<option value="SALE">Sale</option><option value="PAYROLL">Payroll</option>', true) + field('sourceid', 'Sale or payroll ID', 'type="number" min="1" required') + field('amount', 'Amount', 'type="number" min="0" required') + field('recordedby', 'Recorded by employee ID', 'type="number" min="1" required'),
-      submitFn: (form) => {
-        const sourcetype = form.get('sourcetype');
-        const sourceid = Number(form.get('sourceid'));
-        return apiRequest('/ledger', { method: 'POST', body: JSON.stringify({ sourcetype, saleid: sourcetype === 'SALE' ? sourceid : null, payrollid: sourcetype === 'PAYROLL' ? sourceid : null, amount: Number(form.get('amount')), recordedby: Number(form.get('recordedby')) }) });
-      },
-    },
   },
 };
 
 export async function renderSales(page) {
-  const [sales, products, employees, branches] = await Promise.all([
-    loadList('/sales'),
-    loadList('/products'),
-    loadList('/employees'),
-    loadList('/branches'),
+  const user = getCurrentUser() || window.__HW_USER__;
+  const [sales, products, branches] = await Promise.all([
+    loadList('/api/sales'),
+    loadList('/api/products'),
+    loadList('/api/branches'),
   ]);
-  const cashiers = employees.data.filter((e) => e.roletype === 'Cashier');
+
+  // Check permission
+  const hasPOS = can('sales:pos');
+
   page.innerHTML = `
-    <header class="card">
-      <div class="kicker">${icons.banknote} Point of sale</div>
-      <h1>Sales & Retail Checkout</h1>
-      <p class="muted">Live sales and line items from MySQL.</p>
+    <header class="page-head card">
+      <div>
+        <div class="kicker">${icons.banknote} Point of sale</div>
+        <h1>Sales & Retail Checkout</h1>
+        <p class="muted">Completed sales with stock deduction, payment, and finance journals.</p>
+      </div>
+      ${hasPOS ? `<button class="btn btn-primary" id="open-session-btn">Open Session</button>` : ''}
     </header>
+    ${hasPOS ? `
     <form id="pos" class="pos-grid">
       <section class="card">
-        <div style="display:flex;gap:.5rem">
+        <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
           <select class="control" id="product-select" style="flex:1">
-            <option value="">Select a product</option>
-            ${products.data.map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)}</option>`).join('')}
+            <option value="">Search / select a product</option>
+            ${products.data.filter(p => p.is_active !== false).map((p) =>
+              `<option value="${p.itemid}" data-price="${p.unitprice}" data-stock="${p.available_stock || 0}">
+                ${p.itemname} · UGX ${Number(p.unitprice).toLocaleString()} · Stock: ${p.available_stock || 0}
+              </option>`
+            ).join('')}
           </select>
           <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
         </div>
         <div id="lines"><p class="muted center">Add products to begin a sale.</p></div>
       </section>
       <aside class="card form-grid">
-        <div><h2>Checkout</h2><p class="muted">Sale and sale-item records are saved together.</p></div>
-        <label class="field">Cashier
-          <select class="control" name="employeeid" required>
-            <option value="">Select cashier</option>
-            ${cashiers.map((c) => `<option value="${c.employeeid}">${c.name}</option>`).join('')}
-          </select>
-        </label>
+        <div><h2>Checkout</h2></div>
         <label class="field">Branch
           <select class="control" name="branchid" required>
-            <option value="">Select branch</option>
-            ${branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join('')}
+            ${branches.data.map((b) => `<option value="${b.branchid}" ${b.branchid === user?.branchid ? 'selected' : ''}>${b.branchname}</option>`).join('')}
           </select>
         </label>
-        <input class="control" name="customername" placeholder="Customer name">
-        <input class="control" name="customerphone" placeholder="Phone number">
+        <label class="field">Payment Method
+          <select class="control" name="payment_method">
+            <option value="CASH">Cash</option>
+            <option value="MOBILE_MONEY">Mobile Money</option>
+            <option value="CARD">Card / Bank</option>
+            <option value="CREDIT">Customer Credit</option>
+          </select>
+        </label>
+        <input class="control" name="customername" placeholder="Customer name (optional)">
+        <input class="control" name="customerphone" placeholder="Phone number (optional)">
         <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
-        <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete sale</button>
+        <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete Sale</button>
       </aside>
-    </form>
+    </form>` : `<div class="card" style="padding:2rem;text-align:center"><p class="muted">🔒 You do not have POS sales permission.</p></div>`}
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), sales.error || products.error || employees.error || branches.error);
+
+  showNotice(page.querySelector('#notice'), sales.error || products.error);
+
   renderTable(page.querySelector('#table'), {
     columns: [
-      { header: 'Sale ID', key: 'saleid', sortable: true },
+      { header: 'Receipt #', key: 'saleid', sortable: true },
       { header: 'Date', key: 'saledate', sortable: true },
       { header: 'Customer', key: 'customer_name' },
       { header: 'Cashier', key: 'cashier_name' },
       { header: 'Branch', key: 'branch_name' },
+      { header: 'Payment', key: 'payment_method' },
       { header: 'Total', key: 'totalamount', sortable: true, cell: (row) => money(row.totalamount) },
     ],
     data: sales.data,
     searchKey: 'customer_name',
   });
+
+  if (!hasPOS) return;
 
   const lines = [];
   const paintLines = () => {
@@ -410,52 +338,87 @@ export async function renderSales(page) {
     } else {
       box.innerHTML = lines.map((line) => {
         const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="1" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
+        return `<div class="line" data-id="${line.itemid}">
+          <div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each</div></div>
+          <div class="qty">
+            <button type="button" data-dec>−</button>
+            <span>${line.quantity}</span>
+            <button type="button" data-inc>+</button>
+          </div>
+          <strong>${money(product.unitprice * line.quantity)}</strong>
+          <button type="button" data-del style="color:var(--destructive)">&times;</button>
+        </div>`;
       }).join('');
     }
-    const total = lines.reduce((sum, line) => sum + (products.data.find((p) => p.itemid === line.itemid)?.unitprice ?? 0) * line.quantity, 0);
+    const total = lines.reduce((sum, line) => {
+      return sum + (products.data.find((p) => p.itemid === line.itemid)?.unitprice ?? 0) * line.quantity;
+    }, 0);
     page.querySelector('#pos-total').textContent = money(total);
-    page.querySelector('#complete-sale').disabled = !lines.length || !cashiers.length || !branches.data.length;
+    page.querySelector('#complete-sale').disabled = !lines.length;
   };
 
   page.querySelector('#add-line').addEventListener('click', () => {
-    const itemid = Number(page.querySelector('#product-select').value);
+    const sel = page.querySelector('#product-select');
+    const itemid = Number(sel.value);
     if (!itemid) return;
+    const opt = sel.querySelector(`option[value="${itemid}"]`);
+    const stock = parseFloat(opt?.dataset.stock || 0);
     const existing = lines.find((l) => l.itemid === itemid);
+    const qty = existing ? existing.quantity + 1 : 1;
+    if (qty > stock) {
+      showNotice(page.querySelector('#notice'), `Insufficient stock. Available: ${stock}`);
+      return;
+    }
     if (existing) existing.quantity += 1;
     else lines.push({ itemid, quantity: 1 });
-    page.querySelector('#product-select').value = '';
+    sel.value = '';
+    showNotice(page.querySelector('#notice'), null);
     paintLines();
   });
+
   page.querySelector('#lines').addEventListener('click', (event) => {
     const row = event.target.closest('.line');
     if (!row) return;
     const line = lines.find((l) => l.itemid === Number(row.dataset.id));
+    if (!line) return;
     if (event.target.closest('[data-inc]')) line.quantity += 1;
-    if (event.target.closest('[data-dec]')) line.quantity -= 1;
-    if (event.target.closest('[data-del]') || line.quantity < 1) {
-      const idx = lines.findIndex((l) => l.itemid === line.itemid);
-      lines.splice(idx, 1);
+    else if (event.target.closest('[data-dec]')) line.quantity -= 1;
+    else if (event.target.closest('[data-del]')) line.quantity = 0;
+    if (line.quantity < 1) {
+      lines.splice(lines.findIndex((l) => l.itemid === line.itemid), 1);
     }
     paintLines();
   });
+
   page.querySelector('#pos').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.target;
+    const noticeEl = page.querySelector('#notice');
+    const btn = page.querySelector('#complete-sale');
+    btn.disabled = true;
+    btn.textContent = 'Processing…';
     try {
-      await apiRequest('/sales', {
+      // Generate a simple idempotency key
+      const ikey = `POS-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await apiRequest('/api/sales', {
         method: 'POST',
+        headers: { 'Idempotency-Key': ikey },
         body: JSON.stringify({
           customername: form.customername.value || null,
           customerphone: form.customerphone.value || null,
-          employeeid: Number(form.employeeid.value),
+          employeeid: user.employeeid,
           branchid: Number(form.branchid.value),
+          payment_method: form.payment_method.value,
+          idempotency_key: ikey,
           items: lines.map((line) => ({ itemid: line.itemid, quantity: line.quantity })),
         }),
       });
+      showNotice(noticeEl, null);
       window.location.reload();
     } catch (error) {
-      showNotice(page.querySelector('#notice'), error.message);
+      showNotice(noticeEl, error.message);
+      btn.disabled = false;
+      btn.textContent = 'Complete Sale';
     }
   });
 }
@@ -563,7 +526,68 @@ export async function renderEmployees(page) {
   });
 }
 
-export async function renderSettings(page) {
+// Stub exports for page renderers called from main.js
+// These delegate to CRUD_PAGES for now and can be replaced with richer pages
+
+export async function renderPayroll(page) {
+  const user = getCurrentUser() || window.__HW_USER__;
+  // Rule 9: if cashier or sales-only role, show only their own payslip
+  if (!can('payroll:view') && user) {
+    try {
+      const slips = await apiRequest(`/api/payroll/payslips?employee_id=${user.employeeid}`);
+      page.innerHTML = `
+        <header class="page-head card"><div><h1>My Payslip</h1></div></header>
+        <div id="table"></div>`;
+      renderTable(page.querySelector('#table'), {
+        columns: [
+          { header: 'Month', key: 'month' },
+          { header: 'Gross Pay', key: 'gross_pay', cell: (r) => money(r.gross_pay) },
+          { header: 'Deductions', key: 'deductions', cell: (r) => money(r.deductions) },
+          { header: 'Net Pay', key: 'net_pay', cell: (r) => money(r.net_pay) },
+          { header: 'Status', key: 'payment_status' },
+        ],
+        data: slips,
+        searchKey: 'month',
+      });
+    } catch (e) {
+      page.innerHTML = `<div class="card" style="padding:2rem;text-align:center"><p class="muted">🔒 ${e.message}</p></div>`;
+    }
+    return;
+  }
+  await renderCrud(page, CRUD_PAGES.payroll);
+}
+
+export async function renderLedger(page) {
+  await renderCrud(page, CRUD_PAGES.ledger);
+}
+
+export async function renderPurchaseOrders(page) {
+  await renderCrud(page, CRUD_PAGES['purchase-orders']);
+}
+
+export async function renderAuditLogs(page) {
+  const result = await loadList('/api/audit-logs');
+  page.innerHTML = `
+    <header class="page-head card">
+      <div><div class="kicker">Security</div><h1>Audit Logs</h1></div>
+    </header>
+    <div id="notice"></div>
+    <div id="table"></div>`;
+  showNotice(page.querySelector('#notice'), result.error);
+  const items = Array.isArray(result.data) ? result.data : (result.data?.items || []);
+  renderTable(page.querySelector('#table'), {
+    columns: [
+      { header: 'Time', key: 'timestamp', sortable: true },
+      { header: 'User', key: 'username_or_email' },
+      { header: 'Action', key: 'action', sortable: true },
+      { header: 'Module', key: 'module' },
+      { header: 'IP', key: 'ip_address' },
+      { header: 'Details', key: 'details' },
+    ],
+    data: items,
+    searchKey: 'action',
+  });
+}
   const employees = await loadList('/employees');
   const colors = {
     Cashier: 'background:#dbeafe;color:#1d4ed8',

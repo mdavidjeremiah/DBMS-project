@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -16,8 +16,10 @@ from decimal import Decimal
 import models
 import schemas
 import auth
+import erp_service
 from database import engine, get_db
 from audit import request_ip, write_audit_log
+from api_router import api_router
 
 app = FastAPI(
     title="Hardware World API",
@@ -45,6 +47,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(api_router)
 
 @app.get("/docs", include_in_schema=False)
 def swagger_ui():
@@ -217,6 +221,14 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # SECURITY: Reject disabled accounts
+    if not getattr(user, "is_active", True):
+        write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="LOGIN_BLOCKED", details="Login attempt on deactivated account", ip_address=request_ip(request))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated. Contact your system administrator.",
+        )
+
     # 1. RBAC (Role-Based Access Control) Policy Check:
     if login_type == "admin":
         if user.roletype != models.RoleType.ADMIN:
@@ -300,7 +312,20 @@ def record_page_view(
     return {"detail": "Page view recorded"}
 
 @app.get("/users/me", tags=["authentication"])
-def read_users_me(current_user: models.Employee = Depends(auth.get_current_user)):
+def read_users_me(
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    branch_assignments = db.query(models.UserBranchAssignment.branch_id).filter(
+        models.UserBranchAssignment.user_id == current_user.employeeid
+    ).all()
+    warehouse_assignments = db.query(models.UserWarehouseAssignment.warehouse_id).filter(
+        models.UserWarehouseAssignment.user_id == current_user.employeeid
+    ).all()
+
+    branch_ids = [b[0] for b in branch_assignments] or ([current_user.branchid] if current_user.branchid else [])
+    warehouse_ids = [w[0] for w in warehouse_assignments]
+
     return {
         "employeeid": current_user.employeeid,
         "name": current_user.name,
@@ -309,7 +334,11 @@ def read_users_me(current_user: models.Employee = Depends(auth.get_current_user)
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
         "branchid": current_user.branchid,
-        "branch_name": current_user.branch.branchname if current_user.branch else None
+        "branch_name": current_user.branch.branchname if current_user.branch else None,
+        "roles": auth.get_user_roles(db, current_user),
+        "permissions": auth.get_user_permissions(db, current_user),
+        "branch_ids": branch_ids,
+        "warehouse_ids": warehouse_ids,
     }
 
 
@@ -394,8 +423,34 @@ def create_supplier(payload: schemas.SupplierCreate, db: Session = Depends(get_d
 
 @app.get("/employees", tags=["organisation"])
 def get_employees(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    employees = db.query(models.Employee).order_by(models.Employee.name).all()
-    return [{"employeeid": e.employeeid, "name": e.name, "nin": e.nin, "phone": e.phone, "datehired": e.datehired, "salary": float(e.salary or 0), "roletype": e.roletype.value, "departmentid": e.departmentid, "department_name": e.department.departmentname if e.department else "Unknown department", "branchid": e.branchid, "branch_name": branch_name(db, e.branchid), "supervisorid": e.supervisorid, "supervisor_name": employee_name(db, e.supervisorid)} for e in employees]
+    # SECURITY FIX: Only HR, Admin, or Branch Manager may enumerate employee salary information.
+    # Other roles receive a sanitized list (no salary/NIN).
+    can_see_sensitive = current_user.roletype in (
+        models.RoleType.ADMIN, models.RoleType.HR_STAFF, models.RoleType.BRANCH_MANAGER
+    ) or auth.has_permission(db, current_user, "hr:view")
+
+    employees = db.query(models.Employee).filter(models.Employee.is_active == True).order_by(models.Employee.name).all()
+    result = []
+    for e in employees:
+        row = {
+            "employeeid": e.employeeid,
+            "name": e.name,
+            "phone": e.phone,
+            "datehired": e.datehired,
+            "roletype": e.roletype.value,
+            "departmentid": e.departmentid,
+            "department_name": e.department.departmentname if e.department else "Unknown department",
+            "branchid": e.branchid,
+            "branch_name": branch_name(db, e.branchid),
+        }
+        if can_see_sensitive:
+            # Only authorized roles receive salary, NIN, and supervisor info
+            row["salary"] = float(e.salary or 0)
+            row["nin"] = e.nin
+            row["supervisorid"] = e.supervisorid
+            row["supervisor_name"] = employee_name(db, e.supervisorid)
+        result.append(row)
+    return result
 
 @app.post("/employees", tags=["organisation"])
 def create_employee(payload: schemas.EmployeeCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
@@ -408,8 +463,27 @@ def create_employee(payload: schemas.EmployeeCreate, db: Session = Depends(get_d
 
 @app.get("/purchase-orders", tags=["operations"])
 def get_purchase_orders(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    # Only procurement, finance, admin, and branch management may see POs
+    require_role(
+        current_user,
+        models.RoleType.ADMIN,
+        models.RoleType.PROCUREMENT_OFFICER,
+        models.RoleType.ACCOUNTANT,
+        models.RoleType.BRANCH_MANAGER,
+    )
     orders = db.query(models.PurchaseOrder).order_by(models.PurchaseOrder.orderdate.desc()).all()
-    return [{"po_id": o.po_id, "orderdate": o.orderdate, "status": o.status.value, "supplier_name": db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first().suppliername if db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first() else "Unknown supplier", "officer_name": employee_name(db, o.employeeid)} for o in orders]
+    result = []
+    for o in orders:
+        supplier = db.get(models.Supplier, o.supplierid)
+        result.append({
+            "po_id": o.po_id,
+            "orderdate": o.orderdate,
+            "status": o.status.value,
+            "total_amount": float(o.total_amount or 0),
+            "supplier_name": supplier.suppliername if supplier else "Unknown supplier",
+            "officer_name": employee_name(db, o.employeeid),
+        })
+    return result
 
 @app.post("/purchase-orders", tags=["operations"])
 def create_purchase_order(payload: schemas.PurchaseOrderCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
@@ -418,6 +492,22 @@ def create_purchase_order(payload: schemas.PurchaseOrderCreate, db: Session = De
 
 @app.get("/payroll", tags=["operations"])
 def get_payroll(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    # SECURITY FIX (Critical Finding 1): Enforce payroll privacy per Rule 9.
+    # Only HR Staff, Accountant, Admin, or Branch Manager may view payroll records.
+    can_view = (
+        current_user.roletype in (
+            models.RoleType.ADMIN,
+            models.RoleType.HR_STAFF,
+            models.RoleType.ACCOUNTANT,
+            models.RoleType.BRANCH_MANAGER,
+        )
+        or auth.has_permission(db, current_user, "payroll:view")
+    )
+    if not can_view:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have permission to view payroll records.",
+        )
     records = db.query(models.Payroll).order_by(models.Payroll.month.desc()).all()
     return [{"payrollid": p.payrollid, "employeeid": p.employeeid, "employee_name": employee_name(db, p.employeeid), "month": p.month, "grosspay": float(p.grosspay), "deductions": float(p.deductions or 0), "netpay": float(p.netpay)} for p in records]
 
@@ -437,19 +527,38 @@ def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Dep
     return result
 
 @app.post("/sales", tags=["operations"])
-def create_sale(payload: schemas.SaleCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
-    if not payload.items: raise HTTPException(400, "At least one sale item is required")
-    customerid = payload.customerid
-    if not customerid and (payload.customername or payload.customerphone):
-        customer = models.Customer(name=payload.customername, phone=payload.customerphone); db.add(customer); db.flush(); customerid = customer.customerid
-    sale = models.Sale(customerid=customerid, employeeid=payload.employeeid, branchid=payload.branchid, totalamount=0); db.add(sale); db.flush()
-    total = Decimal("0")
-    for item in payload.items:
-        product = db.query(models.Product).filter(models.Product.itemid == item.itemid).first()
-        if not product: raise HTTPException(400, f"Product {item.itemid} was not found")
-        total += product.unitprice * item.quantity; db.add(models.SaleItem(saleid=sale.saleid, itemid=product.itemid, quantity=item.quantity, unitpriceatsale=product.unitprice))
-    sale.totalamount = total; db.commit(); db.refresh(sale); return {"saleid": sale.saleid, "totalamount": float(total)}
+def create_sale(
+    payload: schemas.SaleCreate,
+    request: Request,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: models.Employee = Depends(auth.get_current_user),
+):
+    """
+    SECURITY FIX (Critical Finding 2): Route now delegates to the fully-validated
+    erp_service.process_pos_sale which enforces:
+    - Strict quantity > 0 (rejects negative quantities)
+    - Active product check
+    - Stock availability check
+    - Cashier permission check
+    - Idempotency key deduplication
+    - Atomic transaction (sale + stock deduction + payment + journals + audit)
+    """
+    # Enforce POS permission
+    if not auth.has_permission(db, current_user, "sales:pos"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have POS sales permission.",
+        )
+    if idempotency_key and not payload.idempotency_key:
+        payload.idempotency_key = idempotency_key
+
+    return erp_service.process_pos_sale(
+        payload=payload,
+        current_user=current_user,
+        db=db,
+        ip_address=request_ip(request),
+    )
 
 @app.get("/ledger", tags=["operations"])
 def get_ledger(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
