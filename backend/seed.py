@@ -2,15 +2,18 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 import models
 import auth
+from erp_setup import ensure_erp_seed
 from database import engine, SessionLocal
 
 def seed_database():
     db = SessionLocal()
     try:
+        ensure_erp_seed(db)
         # Check if already seeded
         admin_exists = db.query(models.Employee).filter(models.Employee.email == "akena@hardwareworld.com").first()
         if admin_exists:
             print("Database already contains Admin account 'Akena'. Checking departments and records...")
+            db.commit()
             return
 
         print("Seeding Hardware World initial database records...")
@@ -308,6 +311,7 @@ def seed_database():
             recordedby=accountant.employeeid
         ))
 
+        ensure_erp_seed(db)
         db.commit()
         print("Hardware World database seeded successfully!")
         print("Admin user: Akena (email: akena@hardwareworld.com, password: adminpassword)")

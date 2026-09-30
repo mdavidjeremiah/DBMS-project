@@ -16,6 +16,7 @@ class POStatus(str, enum.Enum):
     PENDING = "Pending"
     APPROVED = "Approved"
     RECEIVED = "Received"
+    PARTIALLY_RECEIVED = "Partially Received"
     CANCELLED = "Cancelled"
 
 class LedgerSourceType(str, enum.Enum):
@@ -114,6 +115,7 @@ class Product(Base):
     description = Column(String(255))
     unitprice = Column(Numeric(10, 2), nullable=False)
     reorderlevel = Column(Integer)
+    is_active = Column(Boolean, nullable=False, default=True)
     categoryid = Column(Integer, ForeignKey("category.categoryid"))
     category = relationship("Category", back_populates="products")
 
@@ -132,7 +134,110 @@ class PurchaseOrder(Base):
     orderdate = Column(DateTime, default=datetime.utcnow)
     supplierid = Column(Integer, ForeignKey("supplier.supplierid"))
     employeeid = Column(Integer, ForeignKey("employee.employeeid"))
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=True, index=True)
+    requisition_id = Column(Integer, ForeignKey("purchase_requisitions.id"), nullable=True, unique=True)
     status = Column(Enum(POStatus), default=POStatus.PENDING)
+
+class ERPPurchaseRequisition(Base):
+    __tablename__ = "purchase_requisitions"
+    id = Column(Integer, primary_key=True)
+    reference = Column(String(32), nullable=False, unique=True, index=True)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    requested_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    status = Column(String(20), nullable=False, default="PENDING")
+    notes = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+class ERPPurchaseRequisitionItem(Base):
+    __tablename__ = "purchase_requisition_items"
+    id = Column(Integer, primary_key=True)
+    requisition_id = Column(Integer, ForeignKey("purchase_requisitions.id", ondelete="CASCADE"), nullable=False, index=True)
+    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False)
+    quantity = Column(Numeric(15, 3), nullable=False)
+    estimated_unit_cost = Column(Numeric(15, 2), nullable=False)
+
+class ERPPurchaseRequisitionApproval(Base):
+    __tablename__ = "purchase_requisition_approvals"
+    id = Column(Integer, primary_key=True)
+    requisition_id = Column(Integer, ForeignKey("purchase_requisitions.id"), nullable=False, index=True)
+    requested_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    approved_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    decision = Column(String(20), nullable=False)
+    reason = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+class ERPPurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+    id = Column(Integer, primary_key=True)
+    po_id = Column(Integer, ForeignKey("purchase_order.po_id", ondelete="CASCADE"), nullable=False, index=True)
+    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False)
+    quantity = Column(Numeric(15, 3), nullable=False)
+    received_quantity = Column(Numeric(15, 3), nullable=False, default=0)
+    unit_cost = Column(Numeric(15, 2), nullable=False)
+
+class ERPPurchaseOrderApproval(Base):
+    __tablename__ = "purchase_order_approvals"
+    id = Column(Integer, primary_key=True)
+    po_id = Column(Integer, ForeignKey("purchase_order.po_id"), nullable=False, index=True)
+    requested_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    approved_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    decision = Column(String(20), nullable=False)
+    reason = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+class ERPGoodsReceivedNote(Base):
+    __tablename__ = "goods_received_notes"
+    id = Column(Integer, primary_key=True)
+    reference = Column(String(32), nullable=False, unique=True, index=True)
+    po_id = Column(Integer, ForeignKey("purchase_order.po_id"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False, index=True)
+    received_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    status = Column(String(20), nullable=False, default="CONFIRMED")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+class ERPGoodsReceivedNoteItem(Base):
+    __tablename__ = "goods_received_note_items"
+    id = Column(Integer, primary_key=True)
+    grn_id = Column(Integer, ForeignKey("goods_received_notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    po_item_id = Column(Integer, ForeignKey("purchase_order_items.id"), nullable=False)
+    quantity = Column(Numeric(15, 3), nullable=False)
+
+class ERPSupplierInvoice(Base):
+    __tablename__ = "supplier_invoices"
+    id = Column(Integer, primary_key=True)
+    invoice_number = Column(String(80), nullable=False, index=True)
+    po_id = Column(Integer, ForeignKey("purchase_order.po_id"), nullable=False, index=True)
+    grn_id = Column(Integer, ForeignKey("goods_received_notes.id"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    amount = Column(Numeric(15, 2), nullable=False)
+    status = Column(String(20), nullable=False, default="PENDING_MATCH")
+    created_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("invoice_number", "po_id", name="uq_supplier_invoice_po"),)
+
+class ERPInvoiceMatchResult(Base):
+    __tablename__ = "invoice_match_results"
+    id = Column(Integer, primary_key=True)
+    invoice_id = Column(Integer, ForeignKey("supplier_invoices.id", ondelete="CASCADE"), nullable=False, index=True)
+    matched = Column(Boolean, nullable=False)
+    ordered_quantity = Column(Numeric(15, 3), nullable=False)
+    received_quantity = Column(Numeric(15, 3), nullable=False)
+    invoiced_amount = Column(Numeric(15, 2), nullable=False)
+    expected_amount = Column(Numeric(15, 2), nullable=False)
+    variance_reason = Column(Text)
+    checked_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+class ERPSupplierPayment(Base):
+    __tablename__ = "supplier_payments"
+    id = Column(Integer, primary_key=True)
+    invoice_id = Column(Integer, ForeignKey("supplier_invoices.id"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    amount = Column(Numeric(15, 2), nullable=False)
+    payment_method = Column(String(32), nullable=False)
+    paid_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 class Sale(Base):
     __tablename__ = "sale"
@@ -142,6 +247,8 @@ class Sale(Base):
     customerid = Column(Integer, ForeignKey("customer.customerid"), nullable=True)
     employeeid = Column(Integer, ForeignKey("employee.employeeid"))
     branchid = Column(Integer, ForeignKey("branch.branchid"))
+    status = Column(String(20), nullable=False, default="COMPLETED", index=True)
+    idempotency_key = Column(String(120), nullable=True, unique=True)
     customer = relationship("Customer", back_populates="sales")
     sale_items = relationship("SaleItem", back_populates="sale")
 
@@ -149,7 +256,7 @@ class SaleItem(Base):
     __tablename__ = "sale_item"
     saleid = Column(Integer, ForeignKey("sale.saleid"), primary_key=True)
     itemid = Column(Integer, ForeignKey("product.itemid"), primary_key=True)
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(Numeric(15, 3), nullable=False)
     unitpriceatsale = Column(Numeric(10, 2), nullable=False)
     sale = relationship("Sale", back_populates="sale_items")
     product = relationship("Product")

@@ -310,7 +310,7 @@ export const CRUD_PAGES = {
     endpoint: '/purchase-orders',
     kicker: 'Procurement',
     title: 'Purchase Orders',
-    subtitle: 'Live purchase orders and their assigned officers.',
+    subtitle: 'Purchase orders require an approved requisition and a separate approver.',
     searchKey: 'supplier_name',
     columns: [
       { header: 'Order ID', key: 'po_id', sortable: true },
@@ -322,10 +322,10 @@ export const CRUD_PAGES = {
     create: {
       trigger: 'Create Order',
       title: 'Create purchase order',
-      description: 'Issue an order using live supplier and employee records.',
+      description: 'Issue an order from a requisition after a manager approves it.',
       submit: 'Issue order',
-      fields: field('supplierid', 'Supplier ID', 'type="number" min="1" required') + field('employeeid', 'Officer employee ID', 'type="number" min="1" required'),
-      submitFn: (form) => apiRequest('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), employeeid: Number(form.get('employeeid')), status: 'Pending' }) }),
+      fields: field('supplierid', 'Supplier ID', 'type="number" min="1" required') + field('requisition_id', 'Approved requisition ID', 'type="number" min="1" required'),
+      submitFn: (form) => apiRequest('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), requisition_id: Number(form.get('requisition_id')) }) }),
     },
   },
   payroll: {
@@ -385,26 +385,32 @@ export const CRUD_PAGES = {
   },
 };
 
-export async function renderSales(page) {
-  const [sales, products, employees, branches] = await Promise.all([
+export async function renderSales(page, user = window.__HW_USER__) {
+  const [sales, products] = await Promise.all([
     loadList('/sales'),
     loadList('/products'),
-    loadList('/employees'),
-    loadList('/branches'),
   ]);
-  const cashiers = employees.data.filter((e) => e.roletype === 'Cashier');
+  const cashiers = [user].filter(Boolean);
+  const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
+  const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  let cashierSession = null;
+  if (canSell) {
+    try { cashierSession = await apiRequest('/cashier-sessions/current'); } catch { cashierSession = null; }
+  }
   page.innerHTML = `
     <header class="card">
       <div class="kicker">${icons.banknote} Point of sale</div>
       <h1>Sales & Retail Checkout</h1>
       <p class="muted">Live sales and line items from MySQL.</p>
     </header>
-    <form id="pos" class="pos-grid">
+    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
+    ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
+    <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
       <section class="card">
         <div style="display:flex;gap:.5rem">
           <select class="control" id="product-select" style="flex:1">
             <option value="">Select a product</option>
-            ${products.data.map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)}</option>`).join('')}
+            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
           </select>
           <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
         </div>
@@ -426,14 +432,39 @@ export async function renderSales(page) {
         </label>
         <input class="control" name="customername" placeholder="Customer name">
         <input class="control" name="customerphone" placeholder="Phone number">
+        <label class="field">Payment method<select class="control" name="payment_method"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
         <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
         <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete sale</button>
       </aside>
     </form>
+    <section id="receipt" class="notice hidden" aria-live="polite"></section>
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), sales.error || products.error || employees.error || branches.error);
+  showNotice(page.querySelector('#notice'), sales.error || products.error);
+  const savedReceipt = sessionStorage.getItem('hw_last_receipt');
+  if (savedReceipt) {
+    try {
+      const receiptData = JSON.parse(savedReceipt);
+      const receipt = page.querySelector('#receipt');
+      receipt.classList.remove('hidden');
+      receipt.textContent = `Sale #${receiptData.saleid} completed · Total ${money(receiptData.totalamount)} · COGS ${money(receiptData.cogs)} · Gross profit ${money(receiptData.gross_profit)}`;
+      const printButton = document.createElement('button');
+      printButton.className = 'btn btn-outline';
+      printButton.textContent = 'Print receipt';
+      printButton.addEventListener('click', () => window.print());
+      receipt.appendChild(printButton);
+      sessionStorage.removeItem('hw_last_receipt');
+    } catch { sessionStorage.removeItem('hw_last_receipt'); }
+  }
+  page.querySelector('#open-cashier-session')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
+      window.location.reload();
+    } catch (error) { showNotice(page.querySelector('#notice'), error.message); }
+  });
   renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Sale ID', key: 'saleid', sortable: true },
@@ -455,19 +486,20 @@ export async function renderSales(page) {
     } else {
       box.innerHTML = lines.map((line) => {
         const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="1" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
+        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
       }).join('');
     }
     const total = lines.reduce((sum, line) => sum + (products.data.find((p) => p.itemid === line.itemid)?.unitprice ?? 0) * line.quantity, 0);
     page.querySelector('#pos-total').textContent = money(total);
-    page.querySelector('#complete-sale').disabled = !lines.length || !cashiers.length || !branches.data.length;
+    page.querySelector('#complete-sale').disabled = !lines.length;
   };
 
   page.querySelector('#add-line').addEventListener('click', () => {
     const itemid = Number(page.querySelector('#product-select').value);
     if (!itemid) return;
     const existing = lines.find((l) => l.itemid === itemid);
-    if (existing) existing.quantity += 1;
+    const selectedProduct = products.data.find((p) => p.itemid === itemid);
+    if (existing) existing.quantity = Math.min(Number(selectedProduct.stock_qty), existing.quantity + 1);
     else lines.push({ itemid, quantity: 1 });
     page.querySelector('#product-select').value = '';
     paintLines();
@@ -476,7 +508,10 @@ export async function renderSales(page) {
     const row = event.target.closest('.line');
     if (!row) return;
     const line = lines.find((l) => l.itemid === Number(row.dataset.id));
-    if (event.target.closest('[data-inc]')) line.quantity += 1;
+    if (event.target.closest('[data-inc]')) {
+      const product = products.data.find((p) => p.itemid === line.itemid);
+      line.quantity = Math.min(Number(product.stock_qty), line.quantity + 1);
+    }
     if (event.target.closest('[data-dec]')) line.quantity -= 1;
     if (event.target.closest('[data-del]') || line.quantity < 1) {
       const idx = lines.findIndex((l) => l.itemid === line.itemid);
@@ -484,20 +519,34 @@ export async function renderSales(page) {
     }
     paintLines();
   });
+  page.querySelector('#lines').addEventListener('change', (event) => {
+    if (!event.target.matches('input[type="number"]')) return;
+    const row = event.target.closest('.line');
+    const line = lines.find((item) => item.itemid === Number(row.dataset.id));
+    const product = products.data.find((item) => item.itemid === line.itemid);
+    const quantity = Number(event.target.value);
+    line.quantity = Number.isFinite(quantity) && quantity > 0
+      ? Math.min(quantity, Number(product.stock_qty))
+      : 0;
+    if (!line.quantity) lines.splice(lines.indexOf(line), 1);
+    paintLines();
+  });
   page.querySelector('#pos').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.target;
     try {
-      await apiRequest('/sales', {
+      const receipt = await apiRequest('/sales', {
         method: 'POST',
         body: JSON.stringify({
           customername: form.customername.value || null,
           customerphone: form.customerphone.value || null,
           employeeid: Number(form.employeeid.value),
           branchid: Number(form.branchid.value),
+          payment_method: form.payment_method.value,
           items: lines.map((line) => ({ itemid: line.itemid, quantity: line.quantity })),
         }),
       });
+      sessionStorage.setItem('hw_last_receipt', JSON.stringify(receipt));
       window.location.reload();
     } catch (error) {
       showNotice(page.querySelector('#notice'), error.message);

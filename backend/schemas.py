@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List, Literal
 from datetime import date, datetime
 from decimal import Decimal
 from models import RoleType, POStatus, LedgerSourceType
@@ -7,6 +7,7 @@ from models import RoleType, POStatus, LedgerSourceType
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: Optional[dict] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
@@ -78,8 +79,40 @@ class SupplierCreate(BaseModel):
 
 class PurchaseOrderCreate(BaseModel):
     supplierid: int
-    employeeid: int
+    employeeid: Optional[int] = None
+    requisition_id: Optional[int] = None
     status: POStatus = POStatus.PENDING
+
+class RequisitionItemCreate(BaseModel):
+    itemid: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    estimated_unit_cost: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+
+class PurchaseRequisitionCreate(BaseModel):
+    notes: Optional[str] = None
+    items: List[RequisitionItemCreate]
+
+class ApprovalDecision(BaseModel):
+    reason: Optional[str] = None
+
+class GRNItemCreate(BaseModel):
+    po_item_id: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+
+class GRNCreate(BaseModel):
+    po_id: int
+    items: List[GRNItemCreate]
+
+class SupplierInvoiceCreate(BaseModel):
+    invoice_number: str
+    po_id: int
+    grn_id: int
+    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+
+class SupplierPaymentCreate(BaseModel):
+    invoice_id: int
+    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    payment_method: Literal["cash", "bank", "mobile_money"] = "bank"
 
 class PayrollCreate(BaseModel):
     employeeid: int
@@ -89,15 +122,20 @@ class PayrollCreate(BaseModel):
 
 class SaleItemCreate(BaseModel):
     itemid: int
-    quantity: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
 
 class SaleCreate(BaseModel):
     customerid: Optional[int] = None
     customername: Optional[str] = None
     customerphone: Optional[str] = None
-    employeeid: int
-    branchid: int
+    # Retained as optional for compatibility. The API derives these from JWT.
+    employeeid: Optional[int] = None
+    branchid: Optional[int] = None
+    payment_method: Literal["cash", "card", "mobile_money"] = "cash"
     items: List[SaleItemCreate]
+
+class CashierSessionOpen(BaseModel):
+    opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
 
 class LedgerCreate(BaseModel):
     sourcetype: LedgerSourceType
