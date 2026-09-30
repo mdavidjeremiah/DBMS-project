@@ -100,12 +100,34 @@ export async function requireAuth() {
   return user;
 }
 
-// Used by the app shell. Backend route guards remain authoritative.
-export async function requireSession() {
-  const user = await getCurrentUser();
-  if (!user) {
-    window.location.replace('/login.html');
-    return null;
+    if (!hasAccess(user.roletype, pathToCheck) && pathToCheck !== '/index.html') {
+      // We allow everyone to see the dashboard (index.html), but other pages are restricted.
+      // If they don't have access to this page, render the Access Denied component
+      document.body.innerHTML = '';
+      
+      // Dynamically import components to show access denied
+      import('./components.js').then(({ createAccessDenied }) => {
+        const container = document.createElement('div');
+        container.className = 'app-shell';
+        
+        const main = document.createElement('main');
+        main.style.padding = '2rem';
+        main.appendChild(createAccessDenied(user.roletype, user.department_name || 'Unknown'));
+        
+        container.appendChild(main);
+        document.body.appendChild(container);
+      });
+      
+      return null; // Prevent further rendering
+    }
+
+    // Record protected page visits without delaying the interface.
+    void apiRequest('/audit/page-view', {
+      method: 'POST',
+      body: JSON.stringify({ page: pathToCheck }),
+    }).catch(() => {});
+  
+    return user;
   }
   const page = document.body.dataset.page || 'dashboard';
   const paths = { dashboard: '/', sales: '/sales.html', employees: '/employees.html', settings: '/settings.html', products: '/products.html', categories: '/categories.html', suppliers: '/suppliers.html', 'purchase-orders': '/purchase-orders.html', payroll: '/payroll.html', ledger: '/ledger.html' };
@@ -117,7 +139,13 @@ export async function requireSession() {
 }
   
   /** Sign out the user and redirect to login */
-  export function signOut() {
-    clearAccessToken();
-    window.location.replace('/login.html');
+  export async function signOut() {
+    try {
+      await apiRequest('/logout', { method: 'POST' });
+    } catch (_) {
+      // Local sign-out must still work if the server is unavailable.
+    } finally {
+      clearAccessToken();
+      window.location.replace('/login.html');
+    }
   }

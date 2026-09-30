@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime, Numeric, Text, UniqueConstraint, Table
+from sqlalchemy import Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime, Numeric, Text
 from sqlalchemy.orm import relationship
 import enum
 from database import Base
@@ -280,125 +280,16 @@ class LedgerEntry(Base):
     amount = Column(Numeric(12, 2), nullable=False)
     recordedby = Column(Integer, ForeignKey("employee.employeeid"))
 
-class ERPJournalEntry(Base):
-    __tablename__ = "journal_entries"
-    id = Column(Integer, primary_key=True)
-    reference_type = Column(String(40), nullable=False)
-    reference_id = Column(Integer, nullable=False, index=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default="POSTED")
-    created_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-class ERPJournalLine(Base):
-    __tablename__ = "journal_entry_lines"
-    id = Column(Integer, primary_key=True)
-    journal_id = Column(Integer, ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False, index=True)
-    account_code = Column(String(32), nullable=False, index=True)
-    account_name = Column(String(100), nullable=False)
-    debit = Column(Numeric(15, 2), nullable=False, default=0)
-    credit = Column(Numeric(15, 2), nullable=False, default=0)
+class AuditLog(Base):
+    __tablename__ = "audit_log"
 
+    auditlogid = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("employee.employeeid", ondelete="SET NULL"), nullable=True, index=True)
+    username_or_email = Column(String(100), nullable=True, index=True)
+    action = Column(String(64), nullable=False, index=True)
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
-# Additive ERP foundation. The legacy six-value Employee.roletype remains the
-# dashboard-routing role; these tables provide extensible, fine-grained RBAC.
-user_roles = Table(
-    "user_roles", Base.metadata,
-    Column("employeeid", Integer, ForeignKey("employee.employeeid", ondelete="CASCADE"), primary_key=True),
-    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
-)
-role_permissions = Table(
-    "role_permissions", Base.metadata,
-    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
-    Column("permission_id", Integer, ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
-)
-
-class ERPOrganization(Base):
-    __tablename__ = "organizations"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(150), nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-class ERPWarehouse(Base):
-    __tablename__ = "warehouses"
-    id = Column(Integer, primary_key=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    name = Column(String(120), nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    __table_args__ = (UniqueConstraint("branch_id", "name", name="uq_warehouse_branch_name"),)
-
-class ERPStockBalance(Base):
-    __tablename__ = "inventory_balances"
-    id = Column(Integer, primary_key=True)
-    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False, index=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True, index=True)
-    quantity = Column(Numeric(15, 3), nullable=False, default=0)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    __table_args__ = (UniqueConstraint("itemid", "branch_id", "warehouse_id", name="uq_inventory_product_branch_warehouse"),)
-
-class ERPInventoryMovement(Base):
-    __tablename__ = "inventory_movements"
-    id = Column(Integer, primary_key=True)
-    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False, index=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
-    movement_type = Column(String(40), nullable=False)
-    quantity = Column(Numeric(15, 3), nullable=False)
-    reference_type = Column(String(40), nullable=False)
-    reference_id = Column(Integer, nullable=False)
-    created_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-class ERPPayment(Base):
-    __tablename__ = "payments"
-    id = Column(Integer, primary_key=True)
-    saleid = Column(Integer, ForeignKey("sale.saleid"), nullable=False, unique=True, index=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    cashier_session_id = Column(Integer, ForeignKey("cashier_sessions.id"), nullable=True, index=True)
-    method = Column(String(32), nullable=False, default="cash")
-    amount = Column(Numeric(15, 2), nullable=False)
-    status = Column(String(20), nullable=False, default="COMPLETED")
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-class ERPAuditLog(Base):
-    __tablename__ = "audit_logs"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("employee.employeeid"), nullable=False, index=True)
-    action = Column(String(80), nullable=False)
-    module = Column(String(40), nullable=False)
-    entity_type = Column(String(80), nullable=False)
-    entity_id = Column(String(80), nullable=False)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=True, index=True)
-    details_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-
-class ERPRole(Base):
-    __tablename__ = "roles"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(80), nullable=False, unique=True)
-    description = Column(String(255))
-    users = relationship("Employee", secondary=user_roles, backref="erp_roles")
-    permissions = relationship("ERPPermission", secondary=role_permissions, back_populates="roles")
-
-class ERPPermission(Base):
-    __tablename__ = "permissions"
-    id = Column(Integer, primary_key=True)
-    code = Column(String(120), nullable=False, unique=True, index=True)
-    module = Column(String(50), nullable=False, index=True)
-    action = Column(String(40), nullable=False)
-    scope = Column(String(40), nullable=False, default="organization")
-    roles = relationship("ERPRole", secondary=role_permissions, back_populates="permissions")
-
-class ERPCashierSession(Base):
-    __tablename__ = "cashier_sessions"
-    id = Column(Integer, primary_key=True)
-    employeeid = Column(Integer, ForeignKey("employee.employeeid"), nullable=False, index=True)
-    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
-    opening_float = Column(Numeric(15, 2), nullable=False)
-    closing_amount = Column(Numeric(15, 2))
-    status = Column(String(20), nullable=False, default="OPEN")
-    opened_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    closed_at = Column(DateTime)
+    user = relationship("Employee", foreign_keys=[user_id])
