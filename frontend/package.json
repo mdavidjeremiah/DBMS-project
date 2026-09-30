@@ -2,8 +2,10 @@
   "name": "hardware-world",
   "version": "0.2.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "npx -y serve@latest .",
-    "start": "npx -y serve@latest -s ."
+    "start": "npx -y serve@latest -s .",
+    "test": "node --test test_frontend.mjs"
   }
 }

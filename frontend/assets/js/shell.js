@@ -1,166 +1,211 @@
-import { hasAccess, signOut } from './auth.js';
+/**
+ * Hardware World ERP — App Shell
+ *
+ * Builds the full app layout (sidebar, topbar, page area, footer) using
+ * the role-aware sidebar-config.js and the user's live permissions[].
+ */
+
+import { signOut } from './auth.js';
+import { getSidebarItems } from './sidebar-config.js';
+import { refreshAlerts, updateNotificationBadge } from './notifications.js';
+
+const THEME_KEY = 'hw_theme';
+
+function currentTheme() {
+  return (
+    localStorage.getItem(THEME_KEY) ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  );
+}
+
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  localStorage.setItem(THEME_KEY, theme);
+}
+
+function currentPageFile() {
+  const p = window.location.pathname.split('/').pop() || 'index.html';
+  return p || 'index.html';
+}
+
+/** Return a greeting based on current hour. */
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 /**
- * AppShell initialization.
- * Injects the sidebar, topbar, and footer around the main content.
+ * Mount the full app shell around the page content.
+ * @param {HTMLElement} root  — document.getElementById('app') or document.body
+ * @param {object} user       — resolved /users/me response
+ * @param {string} pageHtml   — initial inner HTML for the page area
  */
-export function initShell(user) {
-  const currentPath = window.location.pathname;
-  const path = currentPath === '/' ? '/index.html' : currentPath;
+export function initShell(user, pageHtml = '') {
+  applyTheme(currentTheme());
 
-  // Wrap body content in a shell structure
-  const originalBodyContent = document.body.innerHTML;
-  document.body.innerHTML = '';
-  
-  const shell = document.createElement('div');
-  shell.className = 'app-shell';
+  const role = user.roletype || 'Admin';
+  const permissions = user.permissions || [];
+  const currentFile = currentPageFile();
+  const hasHash = window.location.hash;
 
-  // 1. Sidebar
-  const sidebar = document.createElement('aside');
-  sidebar.className = 'sidebar sidebar-mobile-hidden';
-  sidebar.innerHTML = `
-    <div class="flex items-center gap-2 mb-4 px-2">
-      <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <i data-lucide="hammer" class="w-5 h-5"></i>
-      </div>
-      <span class="text-xl font-black tracking-tight text-foreground">Hardware World</span>
-      <button class="btn btn-icon btn-ghost md:hidden ml-auto" id="close-sidebar">
-        <i data-lucide="x" class="w-5 h-5"></i>
-      </button>
-    </div>
-    <div class="mb-4">
-      <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Operations</div>
-      <nav class="flex flex-col gap-1" id="nav-operations"></nav>
-    </div>
-    <div class="mb-4">
-      <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">People & Ledger</div>
-      <nav class="flex flex-col gap-1" id="nav-people"></nav>
-    </div>
-    <div class="mt-auto">
-      <nav class="flex flex-col gap-1" id="nav-settings"></nav>
-    </div>
-  `;
-  shell.appendChild(sidebar);
+  // Build sidebar items for this role
+  const items = getSidebarItems(role, permissions);
 
-  // 2. Main Content Wrapper
-  const main = document.createElement('div');
-  main.className = 'main-content';
+  let lastSection = '';
+  const navHtml = items
+    .map((item) => {
+      if (item.section) {
+        lastSection = item.section;
+        return `<div class="nav-label"><span>${item.section}</span></div>`;
+      }
+      const page = (item.href || '').split('#')[0];
+      const isActive = page === currentFile || (currentFile === '' && page === 'index.html');
+      return `
+        <a class="nav-link ${isActive ? 'active' : ''}" href="${item.href || '#'}">
+          <i data-lucide="${item.icon}" class="w-5 h-5"></i>
+          <span>${item.label}</span>
+          ${item.badge ? `<span class="nav-badge" data-badge="${item.badge}"></span>` : ''}
+        </a>`;
+    })
+    .join('');
 
-  // 3. Topbar
-  const topbar = document.createElement('header');
-  topbar.className = 'topbar';
-  topbar.innerHTML = `
-    <div class="flex items-center gap-4">
-      <button class="btn btn-icon btn-ghost md:hidden" id="open-sidebar">
-        <i data-lucide="menu" class="w-5 h-5"></i>
-      </button>
-      <div class="hidden md:flex items-center gap-2 text-sm text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-        <i data-lucide="search" class="w-4 h-4"></i>
-        <span>Search operations... (Ctrl+K)</span>
-      </div>
-    </div>
-    <div class="flex items-center gap-4">
-      <button class="btn btn-icon btn-ghost" id="theme-toggle">
-        <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
-        <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
-      </button>
-      <div class="flex items-center gap-2 border-l border-border pl-4">
-        <div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-          ${user.name.charAt(0)}
+  // Determine role-aware quick action
+  const quickActions = {
+    Cashier: { label: 'New Sale', href: 'sales.html', icon: 'shopping-cart' },
+    'Procurement Officer': { label: 'Create PO', href: 'purchase-orders.html', icon: 'file-plus' },
+    Accountant: { label: 'Record Payment', href: 'ledger.html', icon: 'credit-card' },
+    'HR Staff': { label: 'Add Employee', href: 'employees.html', icon: 'user-plus' },
+    'Branch Manager': { label: 'Review Approvals', href: 'index.html#approvals', icon: 'check-circle' },
+    Admin: { label: 'Create User', href: 'employees.html', icon: 'user-plus' },
+  };
+  const qa = quickActions[role] || quickActions['Admin'];
+
+  const root = document.getElementById('app') || document.body;
+  const savedContent = root.innerHTML;
+
+  root.innerHTML = `
+    <div class="app-shell">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="hw-sidebar">
+        <div class="brand">
+          <div class="brand-mark">HW</div>
+          <div>
+            <strong>HARDWARE WORLD</strong>
+            <small>${user.branch_name || 'Main Branch'}</small>
+          </div>
+          <button class="icon-btn md:hidden ml-auto" id="close-sidebar" aria-label="Close">✕</button>
         </div>
-        <div class="hidden md:block">
-          <div class="text-sm font-medium leading-none">${user.name}</div>
-          <div class="text-xs text-muted-foreground">${user.roletype}</div>
+        <nav id="hw-nav">${navHtml}</nav>
+        <div class="sidebar-user">
+          <div class="avatar">${(user.name || 'U').charAt(0)}</div>
+          <div>
+            <strong>${user.name}</strong>
+            <div class="muted">${role} · ${user.department_name || ''}</div>
+          </div>
         </div>
-        <button class="btn btn-icon btn-ghost text-muted-foreground ml-2" id="sign-out" title="Sign out">
-          <i data-lucide="log-out" class="w-4 h-4"></i>
-        </button>
+      </aside>
+
+      <!-- Main content column -->
+      <div class="content-col">
+        <!-- Topbar -->
+        <header class="topbar" id="hw-topbar">
+          <div class="flex items-center gap-3">
+            <button class="icon-btn" id="menu-btn" aria-label="Open navigation">☰</button>
+            <div class="search-wrap">
+              <i data-lucide="search" class="w-4 h-4 search-icon"></i>
+              <input class="search-input" placeholder="Search receipts, products, employees…" id="global-search" autocomplete="off">
+            </div>
+          </div>
+          <div class="topbar-right">
+            <!-- Branch selector -->
+            <span class="branch-chip" id="hw-branch-chip">${user.branch_name || 'Main Branch'}</span>
+
+            <!-- Date filter -->
+            <select class="date-filter" id="hw-date-filter" aria-label="Date filter">
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="quarter">This Quarter</option>
+            </select>
+
+            <!-- Notification bell -->
+            <button class="icon-btn relative" id="hw-notif-btn" aria-label="Notifications">
+              <i data-lucide="bell" class="w-5 h-5"></i>
+              <span id="hw-notif-badge" style="display:none;position:absolute;top:2px;right:2px;
+                background:var(--destructive);color:#fff;border-radius:999px;
+                font-size:.6rem;font-weight:700;padding:1px 4px;line-height:1.4;">0</span>
+            </button>
+
+            <!-- Theme toggle -->
+            <button class="icon-btn" id="theme-btn" aria-label="Toggle theme">
+              <i data-lucide="${currentTheme() === 'dark' ? 'sun' : 'moon'}" class="w-5 h-5"></i>
+            </button>
+
+            <!-- Quick action -->
+            <a href="${qa.href}" class="btn btn-primary btn-sm quick-action-btn">
+              <i data-lucide="${qa.icon}" class="w-4 h-4"></i>
+              <span class="hidden md:inline">${qa.label}</span>
+            </a>
+
+            <!-- User chip -->
+            <div class="user-chip">
+              <div class="avatar">${(user.name || 'U').charAt(0)}</div>
+              <div class="hidden md:block">
+                <p>${user.name}</p>
+                <span>${role}</span>
+              </div>
+            </div>
+            <button class="icon-btn" id="signout-btn" aria-label="Sign out">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </header>
+
+        <!-- Page area -->
+        <main class="main" id="hw-page">
+          <div class="page" id="page">${pageHtml || savedContent}</div>
+        </main>
       </div>
     </div>
   `;
-  main.appendChild(topbar);
 
-  // 4. Page Content
-  const pageContent = document.createElement('main');
-  pageContent.className = 'page-content';
-  pageContent.innerHTML = originalBodyContent;
-  main.appendChild(pageContent);
+  // ── Event wiring ──
+  applyTheme(currentTheme());
 
-  // 5. Footer
-  const footer = document.createElement('footer');
-  footer.className = 'footer';
-  footer.innerHTML = `
-    <div class="flex items-center gap-4">
-      <div class="flex items-center gap-2 text-primary font-bold">
-        <i data-lucide="hammer" class="w-4 h-4"></i>
-        <span>Hardware World</span>
-      </div>
-      <span>&copy; ${new Date().getFullYear()} Hardware World Ltd.</span>
-    </div>
-    <div class="flex gap-4">
-      <a href="#" class="hover:text-foreground">Support</a>
-      <a href="#" class="hover:text-foreground">Terms</a>
-      <a href="#" class="hover:text-foreground">Privacy</a>
-    </div>
-  `;
-  main.appendChild(footer);
-
-  shell.appendChild(main);
-  document.body.appendChild(shell);
-
-  // --- Initialize Nav Links ---
-  const navItems = [
-    { label: 'Dashboard', icon: 'layout-dashboard', href: '/index.html', group: 'nav-operations' },
-    { label: 'Logs', icon: 'clipboard-list', href: '/audit-logs.html', group: 'nav-operations' },
-    { label: 'Sales & POS', icon: 'shopping-cart', href: '/sales.html', group: 'nav-operations' },
-    { label: 'Purchase Orders', icon: 'file-text', href: '/purchase-orders.html', group: 'nav-operations' },
-    { label: 'Suppliers', icon: 'truck', href: '/suppliers.html', group: 'nav-operations' },
-    { label: 'Categories', icon: 'tags', href: '/categories.html', group: 'nav-operations' },
-    { label: 'Products', icon: 'package', href: '/products.html', group: 'nav-operations' },
-    { label: 'Employees', icon: 'users', href: '/employees.html', group: 'nav-people' },
-    { label: 'Payroll', icon: 'banknote', href: '/payroll.html', group: 'nav-people' },
-    { label: 'Ledger', icon: 'book-open', href: '/ledger.html', group: 'nav-people' },
-    { label: 'Settings', icon: 'settings', href: '/settings.html', group: 'nav-settings' },
-  ];
-
-  navItems.forEach(item => {
-    // Only render if user has access
-    if (hasAccess(user.roletype, item.href)) {
-      const container = document.getElementById(item.group);
-      const a = document.createElement('a');
-      a.href = item.href;
-      a.className = `nav-link ${path === item.href ? 'active' : ''}`;
-      a.innerHTML = `<i data-lucide="${item.icon}" class="w-5 h-5"></i><span>${item.label}</span>`;
-      container.appendChild(a);
+  document.getElementById('theme-btn')?.addEventListener('click', () => {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    const icon = document.querySelector('#theme-btn i[data-lucide]');
+    if (icon) {
+      icon.setAttribute('data-lucide', next === 'dark' ? 'sun' : 'moon');
+      if (window.lucide) window.lucide.createIcons();
     }
   });
 
-  // --- Initialize Event Listeners ---
-  document.getElementById('theme-toggle').addEventListener('click', () => {
-    const isDark = document.documentElement.classList.toggle('dark');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  document.getElementById('signout-btn')?.addEventListener('click', signOut);
+
+  const sidebar = document.getElementById('hw-sidebar');
+  document.getElementById('menu-btn')?.addEventListener('click', () => sidebar?.classList.toggle('open'));
+  document.getElementById('close-sidebar')?.addEventListener('click', () => sidebar?.classList.remove('open'));
+
+  // Date filter broadcasts to page via custom event
+  document.getElementById('hw-date-filter')?.addEventListener('change', (e) => {
+    document.dispatchEvent(new CustomEvent('hw:datefilter', { detail: { value: e.target.value } }));
   });
 
-  // Set initial theme
-  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
-  }
+  // Initialize Lucide icons
+  if (window.lucide) window.lucide.createIcons();
 
-  document.getElementById('sign-out').addEventListener('click', signOut);
+  // Refresh notification badge
+  refreshAlerts().catch(() => {});
+}
 
-  const sidebarEl = document.querySelector('.sidebar');
-  document.getElementById('open-sidebar').addEventListener('click', () => {
-    sidebarEl.classList.remove('sidebar-mobile-hidden');
-    sidebarEl.classList.add('sidebar-mobile-open');
-  });
-  
-  document.getElementById('close-sidebar').addEventListener('click', () => {
-    sidebarEl.classList.add('sidebar-mobile-hidden');
-    sidebarEl.classList.remove('sidebar-mobile-open');
-  });
-
-  // Initialize Lucide icons if loaded
-  if (window.lucide) {
-    window.lucide.createIcons();
-  }
+/**
+ * Expose the page element so modules can render into it without
+ * knowing the shell structure.
+ */
+export function getPageEl() {
+  return document.getElementById('page');
 }

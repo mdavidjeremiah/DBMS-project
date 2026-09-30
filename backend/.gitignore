@@ -3,7 +3,7 @@
 .env.*
 !.env.example
 
-# Python virtual environments and caches
+# Python environments and caches
 .venv/
 venv/
 env/
@@ -19,12 +19,5 @@ __pycache__/
 # Logs and local tooling
 *.log
 .vscode/
-
-# Frontend dependencies and build output
-node_modules/
-.next/
-out/
-
-# OS files
 .DS_Store
 Thumbs.db

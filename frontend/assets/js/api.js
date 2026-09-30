@@ -1,15 +1,6 @@
 // Cookie-based JWT auth against FastAPI backend.
 
 export const API_URL = window.__HW_API_URL__ || '';
-export const TOKEN_COOKIE = 'hw_access_token';
-
-export function getToken() {
-  const match = document.cookie
-    .split(';')
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${TOKEN_COOKIE}=`));
-  return match ? decodeURIComponent(match.split('=')[1]) : null;
-}
 
 export async function apiRequest(path, init = {}) {
   const headers = new Headers(init.headers);
@@ -34,14 +25,6 @@ export async function apiRequest(path, init = {}) {
   if (!response.ok) throw new Error(body?.detail ?? `API request failed (${response.status})`);
   if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST') sessionStorage.removeItem('hw_pending_sale_key');
   return body;
-}
-
-export function setAccessToken(token) {
-  document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=3600`;
-}
-
-export function clearAccessToken() {
-  document.cookie = `${TOKEN_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
 export async function loadList(path) {

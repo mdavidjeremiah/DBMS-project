@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -16,8 +16,10 @@ from decimal import Decimal
 import models
 import schemas
 import auth
+import erp_service
 from database import engine, get_db
 from audit import request_ip, write_audit_log
+from api_router import api_router
 
 app = FastAPI(
     title="Hardware World API",
@@ -45,6 +47,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(api_router)
 
 @app.get("/docs", include_in_schema=False)
 def swagger_ui():
@@ -74,10 +78,14 @@ def add_audit_background_task(response, **event):
 
 def audit_identity_from_request(request: Request):
     authorization = request.headers.get("authorization", "")
-    if not authorization.lower().startswith("bearer "):
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+    else:
+        token = request.cookies.get("hw_access_token")
+    if not token:
         return None
     try:
-        payload = jwt.decode(authorization.split(" ", 1)[1], auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
         email = payload.get("sub")
         return {"username_or_email": email, "user_id": None} if email else None
     except JWTError:
@@ -208,8 +216,14 @@ def register_user(
     db.refresh(new_user)
     return new_user
 
-@app.post("/login", response_model=schemas.Token, tags=["authentication"])
-async def login_for_access_token(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+@app.post("/login", response_model=None, tags=["authentication"])
+async def login_for_access_token(
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    cookie_only: bool = Query(False, include_in_schema=False),
+    db: Session = Depends(get_db),
+):
     """
     Unified Authentication Endpoint with:
     - Support for JSON payload and Form Data
@@ -259,6 +273,14 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # SECURITY: Reject disabled accounts
+    if not getattr(user, "is_active", True):
+        write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="LOGIN_BLOCKED", details="Login attempt on deactivated account", ip_address=request_ip(request))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated. Contact your system administrator.",
+        )
+
     # 1. RBAC (Role-Based Access Control) Policy Check:
     if login_type == "admin":
         if user.roletype != models.RoleType.ADMIN:
@@ -293,7 +315,8 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
             "role": user.roletype.value,
             "departmentid": user.departmentid,
             "departmentname": dept_name,
-            "branchid": user.branchid
+            "branchid": user.branchid,
+            "tv": user.token_version or 0,
         }, 
         expires_delta=access_token_expires
     )
@@ -305,14 +328,36 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
         details=f"Successful {login_type} portal login",
         ip_address=request_ip(request),
     )
+    response.set_cookie(
+        key="hw_access_token",
+        value=access_token,
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        secure=auth.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
+    if cookie_only:
+        return {"detail": "Authenticated"}
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/logout")
 def logout(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
 ):
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.commit()
+    response.delete_cookie(
+        key="hw_access_token",
+        path="/",
+        secure=auth.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
     background_tasks.add_task(
         write_audit_log,
         user_id=current_user.employeeid,

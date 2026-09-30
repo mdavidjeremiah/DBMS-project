@@ -1,4 +1,4 @@
-import { apiRequest, clearAccessToken } from './api.js';
+import { apiRequest } from './api.js';
 
 /**
  * Access Control Matrix
@@ -145,7 +145,6 @@ export async function requireAuth() {
     } catch (_) {
       // Local sign-out must still work if the server is unavailable.
     } finally {
-      clearAccessToken();
       window.location.replace('/login.html');
     }
   }
