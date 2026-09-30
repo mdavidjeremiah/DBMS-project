@@ -1,7 +1,10 @@
 """Quick smoke test: login all 6 seeded users against the running server."""
-import urllib.request, json, urllib.error, sys
+import urllib.request, json, urllib.error, sys, os
 
 BASE = "http://127.0.0.1:8000"
+SEED_PASSWORD = os.getenv("SEED_DEFAULT_PASSWORD")
+if not SEED_PASSWORD:
+    sys.exit("Set SEED_DEFAULT_PASSWORD to the password used by seed.py before running this smoke test.")
 
 def post(path, data):
     req = urllib.request.Request(
@@ -50,7 +53,7 @@ tokens = {}
 print("\n--- Login tests ---")
 all_ok = True
 for email, dept, ltype in users:
-    body = {"username": email, "password": "Hardware@2026!", "department": dept, "login_type": ltype}
+    body = {"username": email, "password": SEED_PASSWORD, "department": dept, "login_type": ltype}
     resp, code = post("/login", body)
     ok = "access_token" in resp
     label = "PASS" if ok else "FAIL"

@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -42,7 +42,7 @@ swagger_ui_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "swagg
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+    allow_origins=auth.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,10 +78,14 @@ def add_audit_background_task(response, **event):
 
 def audit_identity_from_request(request: Request):
     authorization = request.headers.get("authorization", "")
-    if not authorization.lower().startswith("bearer "):
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+    else:
+        token = request.cookies.get("hw_access_token")
+    if not token:
         return None
     try:
-        payload = jwt.decode(authorization.split(" ", 1)[1], auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
         email = payload.get("sub")
         return {"username_or_email": email, "user_id": None} if email else None
     except JWTError:
@@ -170,8 +174,14 @@ def register_user(
     db.refresh(new_user)
     return new_user
 
-@app.post("/login", response_model=schemas.Token, tags=["authentication"])
-async def login_for_access_token(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+@app.post("/login", response_model=None, tags=["authentication"])
+async def login_for_access_token(
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    cookie_only: bool = Query(False, include_in_schema=False),
+    db: Session = Depends(get_db),
+):
     """
     Unified Authentication Endpoint with:
     - Support for JSON payload and Form Data
@@ -263,7 +273,8 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
             "role": user.roletype.value,
             "departmentid": user.departmentid,
             "departmentname": dept_name,
-            "branchid": user.branchid
+            "branchid": user.branchid,
+            "tv": user.token_version or 0,
         }, 
         expires_delta=access_token_expires
     )
@@ -275,14 +286,36 @@ async def login_for_access_token(request: Request, background_tasks: BackgroundT
         details=f"Successful {login_type} portal login",
         ip_address=request_ip(request),
     )
+    response.set_cookie(
+        key="hw_access_token",
+        value=access_token,
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        secure=auth.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
+    if cookie_only:
+        return {"detail": "Authenticated"}
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/logout")
 def logout(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
 ):
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.commit()
+    response.delete_cookie(
+        key="hw_access_token",
+        path="/",
+        secure=auth.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
     background_tasks.add_task(
         write_audit_log,
         user_id=current_user.employeeid,
@@ -519,6 +552,10 @@ def create_payroll(payload: schemas.PayrollCreate, db: Session = Depends(get_db)
 
 @app.get("/sales", tags=["operations"])
 def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
     sales = db.query(models.Sale).order_by(models.Sale.saledate.desc()).all()
     result = []
     for sale in sales:
@@ -562,6 +599,10 @@ def create_sale(
 
 @app.get("/ledger", tags=["operations"])
 def get_ledger(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    if not auth.has_permission(db, current_user, "finance:view"):
+        raise HTTPException(status_code=403, detail="Finance view permission required.")
+    if not auth.has_permission(db, current_user, "finance:view"):
+        raise HTTPException(status_code=403, detail="Finance view permission required.")
     entries = db.query(models.LedgerEntry).order_by(models.LedgerEntry.entrydate.desc()).all()
     return [{"entryid": e.entryid, "entrydate": e.entrydate, "sourcetype": e.sourcetype.value, "amount": float(e.amount), "source_label": f"Sale #{e.saleid}" if e.saleid else f"Payroll #{e.payrollid}", "accountant_name": employee_name(db, e.recordedby)} for e in entries]
 

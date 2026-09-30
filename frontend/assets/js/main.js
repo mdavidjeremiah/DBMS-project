@@ -5,7 +5,7 @@
  * dispatches to the correct page renderer.
  */
 
-import { apiRequest, getToken } from './api.js';
+import { apiRequest } from './api.js';
 import { signOut } from './auth.js';
 import { initShell, getPageEl } from './shell.js';
 import { setCurrentUser } from './permissions.js';
@@ -28,12 +28,6 @@ async function boot() {
   }
 
   // ── Resolve current user ──
-  const token = getToken();
-  if (!token) {
-    window.location.replace('login.html');
-    return;
-  }
-
   let user;
   try {
     user = await apiRequest('/users/me');

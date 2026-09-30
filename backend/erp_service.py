@@ -19,6 +19,41 @@ import models
 import schemas
 import auth
 
+
+def require_branch_access(db: Session, employee: models.Employee, branch_id: int) -> None:
+    if employee.roletype == models.RoleType.ADMIN:
+        return
+    assignments = db.query(models.UserBranchAssignment.branch_id).filter(
+        models.UserBranchAssignment.user_id == employee.employeeid
+    ).all()
+    branch_ids = {assignment[0] for assignment in assignments}
+    if not branch_ids:
+        branch_ids = {employee.branchid} if employee.branchid else set()
+    if branch_id not in branch_ids:
+        raise HTTPException(status_code=403, detail="You do not have access to this branch.")
+
+
+def require_warehouse_access(
+    db: Session,
+    employee: models.Employee,
+    warehouse_id: int,
+    branch_id: int,
+) -> models.Warehouse:
+    warehouse = db.get(models.Warehouse, warehouse_id)
+    if not warehouse or not warehouse.is_active:
+        raise HTTPException(status_code=404, detail="Active warehouse not found.")
+    if warehouse.branch_id != branch_id:
+        raise HTTPException(status_code=403, detail="Warehouse does not belong to the selected branch.")
+    require_branch_access(db, employee, branch_id)
+    if employee.roletype != models.RoleType.ADMIN:
+        assignments = db.query(models.UserWarehouseAssignment.warehouse_id).filter(
+            models.UserWarehouseAssignment.user_id == employee.employeeid
+        ).all()
+        warehouse_ids = {assignment[0] for assignment in assignments}
+        if warehouse_ids and warehouse_id not in warehouse_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this warehouse.")
+    return warehouse
+
 # =====================================================================
 # 1. Point of Sale (POS) Atomic Sale Transaction
 # =====================================================================
@@ -40,6 +75,8 @@ def process_pos_sale(
     - Single transaction creating: Sale, SaleItems, Payment, Inventory Movement,
       Ledger/Journals, and Audit log. Rollback on any failure.
     """
+    if not auth.has_permission(db, current_user, "sales:pos"):
+        raise HTTPException(status_code=403, detail="POS sales permission required.")
     if not payload.items:
         raise HTTPException(status_code=400, detail="At least one sale item is required")
 
@@ -70,6 +107,7 @@ def process_pos_sale(
     if not branch_id:
         branch = db.query(models.Branch).first()
         branch_id = branch.branchid if branch else 1
+    require_branch_access(db, current_user, branch_id)
 
     warehouse_id = payload.warehouseid
     if not warehouse_id:
@@ -81,6 +119,7 @@ def process_pos_sale(
             db.add(wh)
             db.flush()
         warehouse_id = wh.warehouse_id
+    require_warehouse_access(db, current_user, warehouse_id, branch_id)
 
     # 4. Cashier Session Resolution
     session_id = payload.cashiersessionid
@@ -334,6 +373,12 @@ def open_cashier_session(
     ip_address: Optional[str] = None
 ) -> models.CashierSession:
     """Open a cashier shift till session."""
+    user = db.get(models.Employee, employee_id)
+    if not user or not auth.has_permission(db, user, "sales:pos"):
+        raise HTTPException(status_code=403, detail="Cashier session permission required.")
+    require_branch_access(db, user, branch_id)
+    if warehouse_id:
+        require_warehouse_access(db, user, warehouse_id, branch_id)
     active = db.query(models.CashierSession).filter(
         models.CashierSession.employee_id == employee_id,
         models.CashierSession.status == "OPEN"
@@ -380,6 +425,12 @@ def close_cashier_session(
     session = db.get(models.CashierSession, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Cashier session not found.")
+    if (
+        session.employee_id != closed_by_user.employeeid
+        and not auth.has_permission(db, closed_by_user, "sales:approve")
+    ):
+        raise HTTPException(status_code=403, detail="You may only close your own cashier session.")
+    require_branch_access(db, closed_by_user, session.branch_id)
     if session.status == "CLOSED":
         raise HTTPException(status_code=400, detail="This cashier session is already closed.")
 
@@ -423,11 +474,32 @@ def create_goods_received_note(
     ip_address: Optional[str] = None
 ) -> models.GoodsReceivedNote:
     """Receive delivery, increase stock balances, and log movement."""
-    po = db.get(models.PurchaseOrder, payload.po_id)
+    if not auth.has_permission(db, current_user, "procurement:grn"):
+        raise HTTPException(status_code=403, detail="Goods receipt permission required.")
+    po = db.query(models.PurchaseOrder).filter(
+        models.PurchaseOrder.po_id == payload.po_id
+    ).with_for_update().first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found.")
+    require_branch_access(db, current_user, po.branchid)
     if po.status not in (models.POStatus.APPROVED, models.POStatus.PARTIALLY_RECEIVED):
         raise HTTPException(status_code=400, detail=f"Cannot receive goods for PO with status {po.status.value}")
+
+    require_warehouse_access(db, current_user, payload.warehouse_id, po.branchid)
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="At least one received item is required.")
+
+    po_items = {item.item_id: item for item in po.items}
+    requested_quantities: Dict[int, Decimal] = {}
+    for item in payload.items:
+        if item.quantity_received <= 0 or item.item_id not in po_items:
+            raise HTTPException(status_code=400, detail="Received items must be positive quantities on the purchase order.")
+        requested_quantities[item.item_id] = requested_quantities.get(item.item_id, Decimal("0")) + item.quantity_received
+    for item_id, quantity in requested_quantities.items():
+        po_item = po_items[item_id]
+        remaining = po_item.quantity - (po_item.received_quantity or Decimal("0"))
+        if quantity > remaining:
+            raise HTTPException(status_code=400, detail=f"Received quantity exceeds the open quantity for item {item_id}.")
 
     grn_number = payload.grn_number or f"GRN-{po.po_id}-{int(datetime.utcnow().timestamp())}"
     grn = models.GoodsReceivedNote(
@@ -445,8 +517,13 @@ def create_goods_received_note(
     for item in payload.items:
         product = db.get(models.Product, item.item_id)
         if not product:
-            continue
+            raise HTTPException(status_code=400, detail=f"Product {item.item_id} was not found.")
+        po_item = po_items[product.itemid]
         unit_cost = item.unit_cost if item.unit_cost is not None else (product.costprice or Decimal("0"))
+        if item.unit_cost is None:
+            unit_cost = po_item.unit_price
+        if unit_cost != po_item.unit_price:
+            raise HTTPException(status_code=409, detail=f"Unit cost does not match the approved PO price for item {item.item_id}.")
 
         db.add(models.GoodsReceivedNoteItem(
             grn_id=grn.grn_id,
@@ -454,6 +531,7 @@ def create_goods_received_note(
             quantity_received=item.quantity_received,
             unit_cost=unit_cost,
         ))
+        po_item.received_quantity = (po_item.received_quantity or Decimal("0")) + item.quantity_received
 
         # Update or create InventoryBalance
         bal = db.query(models.InventoryBalance).filter(
@@ -486,7 +564,11 @@ def create_goods_received_note(
             created_at=datetime.utcnow(),
         ))
 
-    po.status = models.POStatus.RECEIVED
+    po.status = (
+        models.POStatus.RECEIVED
+        if all(item.received_quantity >= item.quantity for item in po.items)
+        else models.POStatus.PARTIALLY_RECEIVED
+    )
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
         action="GRN_CONFIRMED",
@@ -509,6 +591,35 @@ def process_supplier_invoice(
     ip_address: Optional[str] = None
 ) -> models.SupplierInvoice:
     """Record supplier invoice with 3-way match and post AP journal."""
+    if not auth.has_permission(db, current_user, "finance:invoice"):
+        raise HTTPException(status_code=403, detail="Supplier invoice permission required.")
+    if not payload.po_id or not payload.grn_id:
+        raise HTTPException(status_code=400, detail="A purchase order and goods receipt are required for invoice matching.")
+    po = db.get(models.PurchaseOrder, payload.po_id)
+    grn = db.get(models.GoodsReceivedNote, payload.grn_id)
+    if not po or not grn:
+        raise HTTPException(status_code=404, detail="Purchase order or goods receipt not found.")
+    require_branch_access(db, current_user, po.branchid)
+    if po.supplierid != payload.supplier_id or grn.po_id != po.po_id or grn.status != "CONFIRMED":
+        raise HTTPException(status_code=409, detail="Supplier invoice, purchase order, and goods receipt do not match.")
+    if not grn.items:
+        raise HTTPException(status_code=409, detail="The goods receipt has no received items to match.")
+    po_items = {item.item_id: item for item in po.items}
+    expected_amount = Decimal("0")
+    for received in grn.items:
+        po_item = po_items.get(received.item_id)
+        if not po_item:
+            raise HTTPException(status_code=409, detail="Goods receipt contains an item absent from the purchase order.")
+        expected_amount += received.quantity_received * po_item.unit_price
+    if payload.invoice_amount.quantize(Decimal("0.01")) != expected_amount.quantize(Decimal("0.01")):
+        raise HTTPException(status_code=409, detail="Invoice amount does not match the received PO quantities and prices.")
+    duplicate = db.query(models.SupplierInvoice).filter(
+        models.SupplierInvoice.supplier_id == payload.supplier_id,
+        models.SupplierInvoice.invoice_number == payload.invoice_number,
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="This supplier invoice number has already been recorded.")
+
     invoice = models.SupplierInvoice(
         supplier_id=payload.supplier_id,
         po_id=payload.po_id,
@@ -572,9 +683,26 @@ def record_supplier_payment(
     ip_address: Optional[str] = None
 ) -> models.SupplierPayment:
     """Disburse supplier payment, reduce AP, and credit Bank."""
-    invoice = db.get(models.SupplierInvoice, payload.invoice_id)
+    if not auth.has_permission(db, current_user, "finance:payment"):
+        raise HTTPException(status_code=403, detail="Supplier payment permission required.")
+    invoice = db.query(models.SupplierInvoice).filter(
+        models.SupplierInvoice.invoice_id == payload.invoice_id
+    ).with_for_update().first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Supplier invoice not found.")
+    if not invoice.po_id:
+        raise HTTPException(status_code=409, detail="Supplier invoice is not linked to a purchase order.")
+    po = db.get(models.PurchaseOrder, invoice.po_id)
+    if not po:
+        raise HTTPException(status_code=409, detail="Supplier invoice purchase order no longer exists.")
+    require_branch_access(db, current_user, po.branchid)
+
+    paid_to_date = db.query(func.coalesce(func.sum(models.SupplierPayment.amount), 0)).filter(
+        models.SupplierPayment.invoice_id == invoice.invoice_id
+    ).scalar() or Decimal("0")
+    outstanding = invoice.invoice_amount - paid_to_date
+    if payload.amount <= 0 or payload.amount > outstanding:
+        raise HTTPException(status_code=400, detail=f"Payment exceeds the outstanding invoice balance of {outstanding}.")
 
     payment = models.SupplierPayment(
         invoice_id=invoice.invoice_id,
@@ -584,7 +712,7 @@ def record_supplier_payment(
         paid_at=datetime.utcnow(),
     )
     db.add(payment)
-    invoice.payment_status = "PAID"
+    invoice.payment_status = "PAID" if payload.amount == outstanding else "PARTIAL"
     db.flush()
 
     # Finance Journal: Debit Accounts Payable, Credit Bank Account

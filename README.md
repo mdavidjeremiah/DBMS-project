@@ -33,14 +33,7 @@ The startup sequence creates or updates only the administrator configured by `AD
 
 ## Administrator
 
-The local administrator is configured in `.env`. The current development credentials are:
-
-- Username: `okuja`
-- Password: `backendiskey@28777`
-- Email: `okuja@hardwareworld.local`
-- Role: `Admin`
-
-The administrator can create other users through the protected registration endpoint. Change the local password before sharing or deploying the application.
+The administrator is configured locally through `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env`. No default login credentials are provided. The administrator can create other users through the protected registration endpoint.
 
 ## Architecture
 
@@ -98,4 +91,6 @@ Use Alembic for schema changes instead of manually altering tables.
 
 ## Security
 
-Never commit `.env`, passwords, API keys, or production secrets. The local `.env` is ignored by Git. Replace the development `SECRET_KEY` and administrator password outside local development.
+Never commit `.env`, passwords, API keys, or production secrets. The local `.env` is ignored by Git. Generate a signing key with `py -c "import secrets; print(secrets.token_urlsafe(48))"` and set it as `SECRET_KEY`; startup rejects missing, short, and placeholder keys. Set `COOKIE_SECURE=true` when served over HTTPS and configure `CORS_ALLOWED_ORIGINS` with only the exact trusted frontend origins. The optional `backend/seed.py` baseline also requires its own unique `SEED_DEFAULT_PASSWORD`; do not reuse the administrator password.
+
+After upgrading, apply the token-revocation schema migration with `cd backend; alembic upgrade head`. Existing sessions are invalidated when a user logs out, has their password reset, or has their account status changed.

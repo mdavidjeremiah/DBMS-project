@@ -6,12 +6,16 @@ Tests: security, POS pipeline, idempotency, separation of duties, payroll privac
 import os
 import sys
 from decimal import Decimal
+from fastapi import HTTPException
+from starlette.requests import Request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-# Override DATABASE_URL to use SQLite in-memory
-os.environ["DATABASE_URL"] = "sqlite:///./test_hw.db"
+# Use isolated in-memory configuration; never touch the developer database.
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["SECRET_KEY"] = "unit-test-signing-key-with-more-than-32-characters"
+os.environ["SEED_DEFAULT_PASSWORD"] = "Unit-test-seed-password-2026!"
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -35,12 +39,48 @@ def check(name, condition, detail=""):
 def section(title):
     print(f"\n{'='*60}\n  {title}\n{'='*60}")
 
+def make_request(method="GET", origin=None, token=None):
+    headers = [(b"host", b"testserver")]
+    if origin:
+        headers.append((b"origin", origin.encode()))
+    if token:
+        headers.append((b"cookie", f"hw_access_token={token}".encode()))
+    return Request({
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": "/users/me",
+        "raw_path": b"/users/me",
+        "query_string": b"",
+        "headers": headers,
+        "server": ("testserver", 80),
+        "client": ("testclient", 123),
+    })
+
+def auth_status(request, token=None):
+    try:
+        auth.get_current_user(request=request, token=token, db=db)
+    except HTTPException as error:
+        return error.status_code
+    return 200
+
+def expected_http_status(call):
+    try:
+        call()
+    except HTTPException as error:
+        return error.status_code
+    return 200
+
 # ── Bootstrap ──────────────────────────────────────────────────────
 section("BOOTSTRAP: Create in-memory schema")
 
 from database import Base, engine, SessionLocal
 import models
 import auth
+import api_router as grouped_routes
+import main as legacy_routes
 import erp_service
 import schemas
 
@@ -69,6 +109,7 @@ sarah = db.query(models.Employee).filter(models.Employee.email == "sarah.nakato@
 john  = db.query(models.Employee).filter(models.Employee.email == "john.kato@hardwareworld.com").first()
 grace = db.query(models.Employee).filter(models.Employee.email == "grace.apio@hardwareworld.com").first()
 brian = db.query(models.Employee).filter(models.Employee.email == "brian.mukasa@hardwareworld.com").first()
+moses = db.query(models.Employee).filter(models.Employee.email == "moses.opolot@hardwareworld.com").first()
 
 check("Admin Akena seeded",   akena is not None)
 check("Cashier Sarah seeded", sarah is not None)
@@ -102,13 +143,44 @@ if akena:
 section("PASSWORD & AUTH SECURITY")
 
 if sarah:
-    check("Correct password verifies",  auth.verify_password("Hardware@2026!", sarah.hashed_password))
+    check("Correct password verifies",  auth.verify_password("Unit-test-seed-password-2026!", sarah.hashed_password))
     check("Wrong password rejected",    not auth.verify_password("wrongpassword", sarah.hashed_password))
     check("Empty password rejected",    not auth.verify_password("", sarah.hashed_password))
+    check("Overlong bcrypt password rejected", not auth.verify_password("x" * 73, sarah.hashed_password))
+    try:
+        auth.get_password_hash("x" * 73)
+        check("Overlong password cannot be hashed", False, "Should raise ValueError")
+    except ValueError:
+        check("Overlong password cannot be hashed", True)
     check("SQL-injection string rejected", not auth.verify_password("' OR '1'='1", sarah.hashed_password))
 
 if sarah:
     check("Sarah is_active=True", sarah.is_active == True)
+    current_version = sarah.token_version or 0
+    current_token = auth.create_access_token({"sub": sarah.email, "tv": current_version})
+    check("Active account token accepted", auth_status(make_request(), current_token) == 200)
+    stale_token = auth.create_access_token({"sub": sarah.email, "tv": current_version - 1})
+    check("Revoked token rejected", auth_status(make_request(), stale_token) == 401)
+    sarah.is_active = False
+    check("Inactive account token rejected", auth_status(make_request(), current_token) == 401)
+    sarah.is_active = True
+    check(
+        "Untrusted cookie write origin rejected",
+        auth_status(make_request("POST", "https://attacker.example", current_token)) == 403,
+    )
+    trusted_origin = auth.ALLOWED_ORIGINS[0]
+    check(
+        "Trusted cookie write origin accepted",
+        auth_status(make_request("POST", trusted_origin, current_token)) == 200,
+    )
+    cookie_identity = legacy_routes.audit_identity_from_request(make_request(token=current_token))
+    check("Cookie-authenticated requests retain audit identity", cookie_identity.get("username_or_email") == sarah.email)
+
+if moses:
+    check("HR user blocked from grouped sales list", expected_http_status(lambda: grouped_routes.get_api_sales(current_user=moses, db=db)) == 403)
+    check("HR user blocked from customer list", expected_http_status(lambda: grouped_routes.get_customers(current_user=moses, db=db)) == 403)
+    check("HR user blocked from legacy sales list", expected_http_status(lambda: legacy_routes.get_sales(db=db, current_user=moses)) == 403)
+    check("HR user blocked from legacy ledger", expected_http_status(lambda: legacy_routes.get_ledger(db=db, current_user=moses)) == 403)
 
 # ── Pydantic Schema Validation ────────────────────────────────────
 section("PYDANTIC INPUT VALIDATION (SQL INJECTION & BAD INPUT)")
@@ -141,6 +213,20 @@ warehouse = db.query(models.Warehouse).first()
 product = db.query(models.Product).filter(models.Product.is_active == True).first()
 
 if product and warehouse and sarah:
+    if brian:
+        denied_payload = schemas.SaleCreate(
+            employeeid=brian.employeeid,
+            branchid=brian.branchid or 1,
+            warehouseid=warehouse.warehouse_id,
+            payment_method="CASH",
+            items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal("1"))],
+        )
+        try:
+            erp_service.process_pos_sale(payload=denied_payload, current_user=brian, db=db)
+            check("Non-cashier cannot call POS service", False, "Should raise HTTPException")
+        except HTTPException as error:
+            check("Non-cashier cannot call POS service", error.status_code == 403)
+
     # Ensure stock balance
     bal = db.query(models.InventoryBalance).filter(
         models.InventoryBalance.item_id == product.itemid,
@@ -245,6 +331,148 @@ if product and warehouse and sarah:
         import traceback; traceback.print_exc()
 else:
     print(f"  {INFO} Skipping POS test — seeding may have failed")
+
+section("PROCURE-TO-PAY VALIDATION")
+
+supplier = db.query(models.Supplier).first()
+if product and warehouse and supplier and john and grace and sarah:
+    po = models.PurchaseOrder(
+        supplierid=supplier.supplierid,
+        employeeid=john.employeeid,
+        branchid=warehouse.branch_id,
+        status=models.POStatus.APPROVED,
+        total_amount=product.unitprice * Decimal("5"),
+    )
+    db.add(po)
+    db.flush()
+    po_item = models.PurchaseOrderItem(
+        po_id=po.po_id,
+        item_id=product.itemid,
+        quantity=Decimal("5"),
+        unit_price=product.unitprice,
+        received_quantity=Decimal("0"),
+    )
+    db.add(po_item)
+    db.commit()
+
+    try:
+        erp_service.create_goods_received_note(
+            payload=schemas.GoodsReceivedNoteCreate(
+                po_id=po.po_id,
+                warehouse_id=warehouse.warehouse_id,
+                items=[schemas.GoodsReceivedNoteItemCreate(
+                    item_id=product.itemid,
+                    quantity_received=Decimal("2"),
+                )],
+            ),
+            current_user=john,
+            db=db,
+        )
+        db.refresh(po)
+        db.refresh(po_item)
+        check("Partial GRN advances PO quantity and status", po_item.received_quantity == 2 and po.status == models.POStatus.PARTIALLY_RECEIVED)
+    except Exception as error:
+        check("Partial GRN advances PO quantity and status", False, str(error))
+
+    try:
+        erp_service.create_goods_received_note(
+            payload=schemas.GoodsReceivedNoteCreate(
+                po_id=po.po_id,
+                warehouse_id=warehouse.warehouse_id,
+                items=[schemas.GoodsReceivedNoteItemCreate(
+                    item_id=product.itemid,
+                    quantity_received=Decimal("4"),
+                )],
+            ),
+            current_user=john,
+            db=db,
+        )
+        check("GRN cannot exceed open PO quantity", False, "Should raise HTTPException")
+    except HTTPException as error:
+        check("GRN cannot exceed open PO quantity", error.status_code == 400)
+
+    invoice_amount = product.unitprice * Decimal("2")
+    invoice_payload = schemas.SupplierInvoiceCreate(
+        supplier_id=supplier.supplierid,
+        po_id=po.po_id,
+        grn_id=db.query(models.GoodsReceivedNote).filter_by(po_id=po.po_id).first().grn_id,
+        invoice_number="TEST-INVOICE-001",
+        invoice_amount=invoice_amount,
+    )
+    check(
+        "Unauthorized user blocked from GRN service",
+        expected_http_status(lambda: erp_service.create_goods_received_note(
+            payload=schemas.GoodsReceivedNoteCreate(
+                po_id=po.po_id,
+                warehouse_id=warehouse.warehouse_id,
+                items=[schemas.GoodsReceivedNoteItemCreate(item_id=product.itemid, quantity_received=Decimal("1"))],
+            ),
+            current_user=sarah,
+            db=db,
+        )) == 403,
+    )
+    check(
+        "Unauthorized user blocked from invoice service",
+        expected_http_status(lambda: erp_service.process_supplier_invoice(
+            payload=invoice_payload,
+            current_user=john,
+            db=db,
+        )) == 403,
+    )
+    try:
+        erp_service.process_supplier_invoice(
+            payload=invoice_payload.model_copy(update={"invoice_amount": invoice_amount + Decimal("1")}),
+            current_user=grace,
+            db=db,
+        )
+        check("Invoice amount must match received goods", False, "Should raise HTTPException")
+    except HTTPException as error:
+        check("Invoice amount must match received goods", error.status_code == 409)
+
+    try:
+        invoice = erp_service.process_supplier_invoice(payload=invoice_payload, current_user=grace, db=db)
+        check("Matched invoice accepted", invoice.matched_status == "MATCHED")
+        check(
+            "Unauthorized user blocked from payment service",
+            expected_http_status(lambda: erp_service.record_supplier_payment(
+                payload=schemas.SupplierPaymentCreate(invoice_id=invoice.invoice_id, amount=Decimal("1")),
+                current_user=john,
+                db=db,
+            )) == 403,
+        )
+        try:
+            erp_service.process_supplier_invoice(payload=invoice_payload, current_user=grace, db=db)
+            check("Duplicate supplier invoice rejected", False, "Should raise HTTPException")
+        except HTTPException as error:
+            check("Duplicate supplier invoice rejected", error.status_code == 409)
+
+        half_payment = invoice_amount / Decimal("2")
+        erp_service.record_supplier_payment(
+            payload=schemas.SupplierPaymentCreate(invoice_id=invoice.invoice_id, amount=half_payment),
+            current_user=grace,
+            db=db,
+        )
+        db.refresh(invoice)
+        check("Partial payment remains PARTIAL", invoice.payment_status == "PARTIAL")
+        outstanding = invoice_amount - half_payment
+        try:
+            erp_service.record_supplier_payment(
+                payload=schemas.SupplierPaymentCreate(invoice_id=invoice.invoice_id, amount=outstanding + Decimal("1")),
+                current_user=grace,
+                db=db,
+            )
+            check("Payment cannot exceed outstanding amount", False, "Should raise HTTPException")
+        except HTTPException as error:
+            check("Payment cannot exceed outstanding amount", error.status_code == 400)
+        erp_service.record_supplier_payment(
+            payload=schemas.SupplierPaymentCreate(invoice_id=invoice.invoice_id, amount=outstanding),
+            current_user=grace,
+            db=db,
+        )
+        db.refresh(invoice)
+        check("Final payment marks invoice PAID", invoice.payment_status == "PAID")
+    except Exception as error:
+        check("Matched invoice and payments complete", False, str(error))
 
 # ── Security: Negative quantity goes through erp_service check ────
 section("SECURITY: INVALID SALE INPUTS")
@@ -475,12 +703,5 @@ else:
     print(f"\n  All tests passed! The ERP logic is validated.")
 
 db.close()
-
-# Clean up test SQLite file
-import os as _os
-try:
-    _os.remove("test_hw.db")
-except Exception:
-    pass
 
 sys.exit(0 if results["fail"] == 0 else 1)

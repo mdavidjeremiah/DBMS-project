@@ -153,6 +153,13 @@ CHART_OF_ACCOUNTS = [
 
 def seed_baseline(db):
     """Seed or update all baseline data according to Master Prompt."""
+    seed_password = os.getenv("SEED_DEFAULT_PASSWORD")
+    if (
+        not seed_password
+        or len(seed_password) < 12
+        or seed_password.lower().startswith(("replace-with", "change-me"))
+    ):
+        raise RuntimeError("SEED_DEFAULT_PASSWORD must be configured with at least 12 characters before seeding.")
     print("Seeding Hardware World ERP baseline...")
 
     # 1. Chart of Accounts
@@ -258,7 +265,7 @@ def seed_baseline(db):
     db.commit()
 
     # 6. Seed Staff (Master Prompt Section 0)
-    default_password_hash = auth.get_password_hash("Hardware@2026!")
+    default_password_hash = auth.get_password_hash(seed_password)
 
     staff_data = [
         {
@@ -359,6 +366,9 @@ def seed_baseline(db):
                 db.add(models.HRStaff(employeeid=emp.employeeid, hr_role=s.get("hr_role", "HR Officer")))
             elif s["roletype"] == models.RoleType.BRANCH_MANAGER:
                 db.add(models.BranchManager(employeeid=emp.employeeid, managementlevel=s.get("mgmt_level", "Branch Manager")))
+        else:
+            emp.hashed_password = default_password_hash
+            emp.token_version = (emp.token_version or 0) + 1
 
             # Salary structure
             db.add(models.EmployeeSalaryStructure(

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime,
-    Numeric, Text, Index
+    Numeric, Text, Index, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -63,6 +63,7 @@ class Employee(Base):
     phone = Column(String(20))
     datehired = Column(Date)
     salary = Column(Numeric(10, 2))
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
     departmentid = Column(Integer, ForeignKey("department.departmentid"))
     branchid = Column(Integer, ForeignKey("branch.branchid"))
     supervisorid = Column(Integer, ForeignKey("employee.employeeid"), nullable=True)
@@ -504,6 +505,7 @@ class GoodsReceivedNoteItem(Base):
 
 class SupplierInvoice(Base):
     __tablename__ = "supplier_invoices"
+    __table_args__ = (UniqueConstraint("supplier_id", "invoice_number", name="uq_supplier_invoice_number"),)
     invoice_id = Column(Integer, primary_key=True, index=True)
     supplier_id = Column(Integer, ForeignKey("supplier.supplierid"), nullable=False)
     po_id = Column(Integer, ForeignKey("purchase_order.po_id"), nullable=True)

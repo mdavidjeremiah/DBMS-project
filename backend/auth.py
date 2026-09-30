@@ -3,18 +3,32 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Set
 import bcrypt
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import get_db
 import models
 import schemas
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey_for_hardware_world_123!")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if len(SECRET_KEY.encode("utf-8")) < 32 or SECRET_KEY.lower().startswith(("replace-with", "change-me")):
+    raise RuntimeError("SECRET_KEY must be configured with at least 32 characters.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12 # 12 hours
+ALLOWED_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+)
+COOKIE_SECURE = os.getenv(
+    "COOKIE_SECURE",
+    "false" if os.getenv("APP_ENV", "development").lower() in {"development", "test"} else "true",
+).lower() == "true"
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 # Fallback permission mapping for default roles if not yet in database
 DEFAULT_ROLE_PERMS = {
@@ -49,7 +63,7 @@ DEFAULT_ROLE_PERMS = {
     ],
     "Procurement Officer": [
         "inventory:view", "procurement:requisition", "procurement:po_create",
-        "procurement:po_approve", "procurement:supplier"
+        "procurement:po_approve", "procurement:supplier", "procurement:grn"
     ],
     "Procurement Manager": [
         "inventory:view", "procurement:requisition", "procurement:approve_req",
@@ -79,17 +93,19 @@ DEFAULT_ROLE_PERMS = {
 }
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    if not hashed_password or not plain_password:
+    if not hashed_password or not plain_password or len(plain_password.encode("utf-8")) > 72:
         return False
     try:
-        password_bytes = plain_password.encode('utf-8')[:72]
+        password_bytes = plain_password.encode("utf-8")
         hashed_bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(password_bytes, hashed_bytes)
     except Exception:
         return False
 
 def get_password_hash(password: str) -> str:
-    password_bytes = password.encode('utf-8')[:72]
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        raise ValueError("Passwords must not exceed 72 UTF-8 bytes.")
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
@@ -103,12 +119,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    cookie_token = request.cookies.get("hw_access_token")
+    if not token and cookie_token:
+        token = cookie_token
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin not in ALLOWED_ORIGINS:
+            raise HTTPException(status_code=403, detail="Untrusted request origin.")
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -118,7 +147,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise credentials_exception
     user = db.query(models.Employee).filter(models.Employee.email == token_data.email).first()
-    if user is None:
+    if (
+        user is None
+        or not user.is_active
+        or payload.get("tv", 0) != (user.token_version or 0)
+    ):
         raise credentials_exception
     return user
 

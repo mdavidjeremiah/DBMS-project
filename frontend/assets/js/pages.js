@@ -81,17 +81,16 @@ export async function renderLogin() {
         department: loginType === 'staff' ? form.department.value : 'Administration',
         login_type: loginType,
       };
-      const { setAccessToken } = await import('./api.js');
-      const data = await fetch(`${API_URL}/login`, {
+      await fetch(`${API_URL}/login?cookie_only=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload),
       }).then(async (res) => {
         const body = await res.json();
         if (!res.ok) throw new Error(body.detail ?? 'Authentication failed.');
         return body;
       });
-      setAccessToken(data.access_token);
       window.location.replace('index.html');
     } catch (error) {
       errorEl.textContent = error instanceof Error ? error.message : 'Unable to sign in.';

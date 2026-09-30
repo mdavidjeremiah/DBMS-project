@@ -364,6 +364,8 @@ def close_session(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "sales:pos") and not auth.has_permission(db, current_user, "sales:approve"):
+        raise HTTPException(status_code=403, detail="Cashier session permission required.")
     return erp_service.close_cashier_session(
         session_id=session_id,
         actual_cash=payload.actual_cash,
@@ -404,10 +406,12 @@ def get_current_cashier_session(
 @api_router.get("/sales", tags=["Sales & POS"])
 def get_api_sales(
     branch_id: Optional[int] = None,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
     q = db.query(models.Sale)
     if branch_id:
         q = q.filter(models.Sale.branchid == branch_id)
@@ -448,6 +452,8 @@ def create_api_sale(
     db: Session = Depends(get_db)
 ):
     """Atomic POS Sale creation with full validation and linked records."""
+    if not auth.has_permission(db, current_user, "sales:pos"):
+        raise HTTPException(status_code=403, detail="POS sales permission required.")
     if idempotency_key and not payload.idempotency_key:
         payload.idempotency_key = idempotency_key
 
@@ -602,6 +608,8 @@ def create_api_goods_receipt(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "procurement:grn"):
+        raise HTTPException(status_code=403, detail="Goods receipt permission required.")
     grn = erp_service.create_goods_received_note(
         payload=payload,
         current_user=current_user,
@@ -617,6 +625,8 @@ def create_api_supplier_invoice(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "finance:invoice"):
+        raise HTTPException(status_code=403, detail="Supplier invoice permission required.")
     invoice = erp_service.process_supplier_invoice(
         payload=payload,
         current_user=current_user,
@@ -632,6 +642,8 @@ def create_api_supplier_payment(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "finance:payment"):
+        raise HTTPException(status_code=403, detail="Supplier payment permission required.")
     payment = erp_service.record_supplier_payment(
         payload=payload,
         current_user=current_user,
@@ -1212,8 +1224,11 @@ def create_leave_request(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    can_manage_leave_for_others = auth.has_permission(db, current_user, "hr:manage")
+    if payload.employee_id != current_user.employeeid and not can_manage_leave_for_others:
+        raise HTTPException(status_code=403, detail="You may only submit leave for yourself.")
     lv = models.LeaveRequest(
-        employee_id=payload.employee_id,
+        employee_id=payload.employee_id if can_manage_leave_for_others else current_user.employeeid,
         leave_type=payload.leave_type,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -1372,6 +1387,8 @@ def get_customers(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
     q = db.query(models.Customer)
     if search:
         q = q.filter(
@@ -1387,10 +1404,10 @@ def get_customers(
         result.append({
             "customerid": c.customerid,
             "name": c.name,
-            "phone": c.phone,
-            "credit_limit": float(credit.credit_limit) if credit else None,
-            "outstanding_balance": float(credit.current_balance) if credit else None,
-            "is_blocked": credit.is_blocked if credit else False,
+            "phone": c.phone if auth.has_permission(db, current_user, "sales:pos") else None,
+            "credit_limit": float(credit.credit_limit) if credit and auth.has_permission(db, current_user, "sales:credit") else None,
+            "outstanding_balance": float(credit.current_balance) if credit and auth.has_permission(db, current_user, "sales:credit") else None,
+            "is_blocked": credit.is_blocked if credit and auth.has_permission(db, current_user, "sales:credit") else None,
         })
     return result
 
@@ -1532,6 +1549,7 @@ def toggle_user_active(
     if not emp:
         raise HTTPException(status_code=404, detail="User not found.")
     emp.is_active = payload.is_active
+    emp.token_version = (emp.token_version or 0) + 1
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
         action="USER_DEACTIVATED" if not payload.is_active else "USER_ACTIVATED",
@@ -1558,6 +1576,7 @@ def reset_user_password(
     if not emp:
         raise HTTPException(status_code=404, detail="User not found.")
     emp.hashed_password = auth.get_password_hash(payload.new_password)
+    emp.token_version = (emp.token_version or 0) + 1
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
         action="USER_PASSWORD_RESET",
