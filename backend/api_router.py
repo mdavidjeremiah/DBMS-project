@@ -14,7 +14,10 @@ Provides the full Section 8 grouped endpoint hierarchy:
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, Query
+from pathlib import Path
+import secrets
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import MetaData, Table, func, or_, desc
 
@@ -26,6 +29,13 @@ from database import get_db
 from audit import request_ip, write_audit_log
 
 api_router = APIRouter(prefix="/api")
+PROFILE_PHOTO_DIR = Path(__file__).resolve().parent / "uploads" / "profile-photos"
+MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024
+PROFILE_PHOTO_FORMATS = {
+    "image/jpeg": (".jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    "image/png": (".png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
+    "image/webp": (".webp", lambda data: len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"),
+}
 
 # --- Helper: Permission Enforcer ---
 def require_perm(perm_code: str):
@@ -109,6 +119,7 @@ def get_user_me(
         "employeeid": current_user.employeeid,
         "name": current_user.name,
         "email": current_user.email,
+        "profile_photo_url": f"/api/users/{current_user.employeeid}/profile-photo" if current_user.profile_photo_filename else None,
         "roletype": current_user.roletype,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
@@ -119,6 +130,76 @@ def get_user_me(
         "branch_ids": branch_ids,
         "warehouse_ids": warehouse_ids,
     }
+
+
+@api_router.put("/users/{employee_id}/profile-photo", tags=["Authentication"])
+def upload_employee_profile_photo(
+    employee_id: int,
+    file: UploadFile = File(...),
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not (
+        auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF)
+        or auth.has_permission(db, current_user, "admin:users")
+        or auth.has_permission(db, current_user, "hr:manage")
+    ):
+        raise HTTPException(status_code=403, detail="Employee profile photo permission required.")
+
+    employee = db.get(models.Employee, employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found.")
+
+    content = file.file.read(MAX_PROFILE_PHOTO_BYTES + 1)
+    if len(content) > MAX_PROFILE_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Profile photo must be 5 MB or smaller.")
+    photo_format = PROFILE_PHOTO_FORMATS.get(file.content_type or "")
+    if not photo_format or not photo_format[1](content):
+        raise HTTPException(status_code=415, detail="Upload a valid JPEG, PNG, or WebP image.")
+
+    extension = photo_format[0]
+    PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{secrets.token_hex(24)}{extension}"
+    photo_path = PROFILE_PHOTO_DIR / filename
+    old_filename = employee.profile_photo_filename
+    photo_path.write_bytes(content)
+    try:
+        employee.profile_photo_filename = filename
+        db.commit()
+    except Exception:
+        db.rollback()
+        photo_path.unlink(missing_ok=True)
+        raise
+    if old_filename:
+        (PROFILE_PHOTO_DIR / Path(old_filename).name).unlink(missing_ok=True)
+    return {"profile_photo_url": f"/api/users/{employee.employeeid}/profile-photo"}
+
+
+@api_router.get("/users/{employee_id}/profile-photo", tags=["Authentication"])
+def get_employee_profile_photo(
+    employee_id: int,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    employee = db.get(models.Employee, employee_id)
+    if not employee or not employee.profile_photo_filename:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+
+    filename = Path(employee.profile_photo_filename).name
+    photo_path = PROFILE_PHOTO_DIR / filename
+    if not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    media_type = next(
+        (content_type for content_type, (extension, _) in PROFILE_PHOTO_FORMATS.items() if filename.endswith(extension)),
+        None,
+    )
+    if not media_type:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    return FileResponse(
+        photo_path,
+        media_type=media_type,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @api_router.post("/auth/initial-password", tags=["Authentication"])

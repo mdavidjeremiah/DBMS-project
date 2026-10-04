@@ -60,6 +60,7 @@ class Employee(Base):
     nin = Column(String(20), nullable=False, unique=True)
     email = Column(String(100), unique=True, index=True)
     hashed_password = Column(String(255))
+    profile_photo_filename = Column(String(255), nullable=True)
     phone = Column(String(20))
     datehired = Column(Date)
     salary = Column(Numeric(10, 2))

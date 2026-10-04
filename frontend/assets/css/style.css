@@ -350,15 +350,30 @@ input[type="checkbox"]:checked + label {
 }
 
 .avatar {
+  position: relative;
   display: grid;
   flex: 0 0 2.25rem;
   width: 2.25rem;
   height: 2.25rem;
   place-items: center;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--secondary);
   color: var(--secondary-foreground);
   font-weight: 700;
+}
+
+.avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.avatar img[hidden] {
+  display: none;
 }
 
 .content-col {
@@ -1406,6 +1421,34 @@ input[data-search]::placeholder,
 
 .dialog .form-grid.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-photo-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--background);
+}
+
+.avatar.profile-photo-preview {
+  flex-basis: 4rem;
+  width: 4rem;
+  height: 4rem;
+  font-size: 1.5rem;
+}
+
+.profile-photo-controls {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-photo-controls .muted {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
 }
 
 .dialog .field {

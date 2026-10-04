@@ -142,6 +142,60 @@ test('authenticated API requests use cookies and handle expired sessions', async
   }
 });
 
+test('employee photo provisioning and shared avatar locations use profile photo data', async () => {
+  const [pages, shell, router, styles] = await Promise.all([
+    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/js/shell.js', sourceRoot), 'utf8'),
+    readFile(new URL('../backend/api_router.py', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8'),
+  ]);
+
+  assert.match(pages, /name="profile_photo"/);
+  assert.match(pages, /accept="image\/jpeg,image\/png,image\/webp"/);
+  assert.match(pages, /apiRequest\(`\/users\/\$\{created\.employeeid\}\/profile-photo`/);
+  assert.match(pages, /Retry photo upload/);
+  assert.match(shell, /user\.profile_photo_url/);
+  assert.equal((shell.match(/\$\{avatarMarkup\(user\)\}/g) || []).length, 2);
+  assert.match(router, /MAX_PROFILE_PHOTO_BYTES = 5 \* 1024 \* 1024/);
+  assert.match(router, /Upload a valid JPEG, PNG, or WebP image/);
+  assert.match(styles, /\.avatar img\s*\{[^}]*object-fit:\s*cover/s);
+  assert.match(styles, /\.profile-photo-picker\s*\{/);
+});
+
+test('System Administrator uses the linked GitHub avatar unless an employee photo is set', async () => {
+  const shell = await readFile(new URL('./assets/js/shell.js', sourceRoot), 'utf8');
+  const avatar = await readFile(new URL('./assets/images/admin-profile.jpg', sourceRoot));
+
+  assert.match(shell, /user\.profile_photo_url \|\| \(user\.roletype === 'Admin' \? '\/assets\/images\/admin-profile\.jpg'/);
+  assert.ok(avatar.length > 0);
+  assert.deepEqual([...avatar.subarray(0, 3)], [255, 216, 255]);
+});
+
+test('apiRequest leaves the multipart boundary to the browser for profile photo uploads', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let requestOptions;
+  globalThis.window = { __HW_API_URL__: '', location: { pathname: '/employees.html' } };
+  globalThis.fetch = async (_url, options) => {
+    requestOptions = options;
+    return new Response(JSON.stringify({ profile_photo_url: '/api/users/1/profile-photo' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const { apiRequest } = await import(`./assets/js/api.js?multipart-test=${Date.now()}`);
+    await apiRequest('/users/1/profile-photo', { method: 'PUT', body: new FormData() });
+    assert.equal(requestOptions.headers.has('Content-Type'), false);
+    assert.equal(requestOptions.credentials, 'include');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test('authenticated shell styles its rendered layout and supports responsive navigation', async () => {
   const [shell, styles, ui, pages] = await Promise.all([
     readFile(new URL('./assets/js/shell.js', sourceRoot), 'utf8'),

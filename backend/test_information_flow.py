@@ -1,6 +1,8 @@
 import unittest
 import os
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -117,6 +119,37 @@ class InformationFlowTests(unittest.TestCase):
         response = self.client.get("/categories")
 
         self.assertEqual(response.status_code, 401)
+
+    def test_employee_profile_photo_upload_is_validated_and_available_to_authenticated_users(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        main.app.dependency_overrides[auth.get_current_user] = lambda: self.admin
+        with tempfile.TemporaryDirectory() as upload_dir:
+            with patch("api_router.PROFILE_PHOTO_DIR", Path(upload_dir)):
+                upload = self.client.put(
+                    f"/api/users/{self.admin.employeeid}/profile-photo",
+                    files={"file": ("portrait.png", png, "image/png")},
+                )
+                self.assertEqual(upload.status_code, 200, upload.text)
+                self.assertEqual(
+                    upload.json()["profile_photo_url"],
+                    f"/api/users/{self.admin.employeeid}/profile-photo",
+                )
+
+                profile = self.client.get("/api/users/me")
+                self.assertEqual(profile.status_code, 200, profile.text)
+                self.assertEqual(profile.json()["profile_photo_url"], upload.json()["profile_photo_url"])
+
+                download = self.client.get(upload.json()["profile_photo_url"])
+                self.assertEqual(download.status_code, 200, download.text)
+                self.assertEqual(download.content, png)
+                self.assertEqual(download.headers["content-type"], "image/png")
+                self.assertEqual(download.headers["cache-control"], "private, no-store")
+
+                invalid = self.client.put(
+                    f"/api/users/{self.admin.employeeid}/profile-photo",
+                    files={"file": ("portrait.svg", b"<svg></svg>", "image/svg+xml")},
+                )
+                self.assertEqual(invalid.status_code, 415, invalid.text)
 
     def test_sales_endpoints_enforce_assigned_branch_and_cashier_ownership(self):
         branch_a = models.Branch(branchname="Sales Branch A", location="Test")

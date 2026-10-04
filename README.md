@@ -92,6 +92,8 @@ alembic upgrade head
 
 Use Alembic for schema changes instead of manually altering tables.
 
+Employee profile photos are stored in `backend/uploads/profile-photos`. Apply migrations with `alembic upgrade head` before using employee photo uploads, and ensure the backend process can write to that directory.
+
 ## Security
 
 Never commit `.env`, passwords, API keys, or production secrets. The local `.env` is ignored by Git. Generate a signing key with `py -c "import secrets; print(secrets.token_urlsafe(48))"` and set it as `SECRET_KEY`; startup rejects missing, short, and placeholder keys. Set `COOKIE_SECURE=true` when served over HTTPS and configure `CORS_ALLOWED_ORIGINS` with only the exact trusted frontend origins. The optional `backend/seed.py` baseline also requires its own unique `SEED_DEFAULT_PASSWORD`; do not reuse the administrator password.

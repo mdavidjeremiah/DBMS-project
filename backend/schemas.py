@@ -37,6 +37,7 @@ class UserResponse(BaseModel):
     employeeid: int
     name: str
     email: Optional[str] = None
+    profile_photo_url: Optional[str] = None
     roletype: RoleType
     departmentid: Optional[int] = None
     department_name: Optional[str] = None

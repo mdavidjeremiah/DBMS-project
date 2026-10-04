@@ -485,7 +485,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
   });
 }
 
-function showTemporaryPasswordResult(dialog, account) {
+function showTemporaryPasswordResult(dialog, account, photoUploadError = null, retryPhotoUpload = null) {
   dialog.querySelector('p.muted').textContent = 'Copy this temporary password and share it securely. It will not be shown again.';
   const fields = dialog.querySelector('.form-grid');
   fields.replaceChildren();
@@ -498,6 +498,10 @@ function showTemporaryPasswordResult(dialog, account) {
   passwordInput.setAttribute('aria-label', 'One-time temporary password');
   const status = document.createElement('p');
   status.className = 'muted';
+  status.setAttribute('role', 'status');
+  if (photoUploadError) {
+    status.textContent = `Account created, but the profile photo could not be saved: ${photoUploadError}`;
+  }
   const actions = dialog.querySelector('.dialog-actions');
   const submit = actions.querySelector('button[type="submit"]');
   submit.hidden = true;
@@ -519,7 +523,60 @@ function showTemporaryPasswordResult(dialog, account) {
     }
   });
   actions.prepend(copy);
+  if (photoUploadError && retryPhotoUpload) {
+    const retryPhoto = document.createElement('button');
+    retryPhoto.type = 'button';
+    retryPhoto.className = 'btn btn-outline';
+    retryPhoto.textContent = 'Retry photo upload';
+    retryPhoto.addEventListener('click', async () => {
+      retryPhoto.disabled = true;
+      try {
+        await retryPhotoUpload();
+        status.textContent = 'Profile photo uploaded successfully.';
+        retryPhoto.remove();
+      } catch (error) {
+        status.textContent = `Profile photo could not be saved: ${error instanceof Error ? error.message : 'Upload failed.'}`;
+        retryPhoto.disabled = false;
+      }
+    });
+    actions.prepend(retryPhoto);
+  }
   fields.append(message, passwordInput, status);
+}
+
+function showEmployeePhotoUploadFailure(dialog, employeeName, errorMessage, retryPhotoUpload) {
+  dialog.querySelector('#dialog-description').textContent = 'The employee account was created, but the profile photo still needs attention.';
+  const fields = dialog.querySelector('.form-grid');
+  fields.replaceChildren();
+  const message = document.createElement('p');
+  message.textContent = `${employeeName}'s account was created.`;
+  const status = document.createElement('p');
+  status.className = 'notice error';
+  status.setAttribute('role', 'alert');
+  status.textContent = `The profile photo could not be saved: ${errorMessage}`;
+  const actions = dialog.querySelector('.dialog-actions');
+  actions.querySelector('button[type="submit"]').hidden = true;
+  const done = actions.querySelector('[data-cancel]');
+  done.textContent = 'Done';
+  done.addEventListener('click', () => window.location.reload());
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'btn btn-outline';
+  retry.textContent = 'Retry photo upload';
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    try {
+      await retryPhotoUpload();
+      status.className = 'muted';
+      status.textContent = 'Profile photo uploaded successfully.';
+      retry.remove();
+    } catch (uploadError) {
+      status.textContent = `The profile photo could not be saved: ${uploadError instanceof Error ? uploadError.message : 'Upload failed.'}`;
+      retry.disabled = false;
+    }
+  });
+  actions.prepend(retry);
+  fields.append(message, status);
 }
 
 export async function renderEmployees(page) {
@@ -614,6 +671,15 @@ export async function renderEmployees(page) {
       description: 'Create an employee sign-in account. A one-time temporary password will be generated and must be changed at first sign-in.',
       bodyHtml: `
         <div class="form-grid two">
+          <div class="profile-photo-picker">
+            <div class="avatar profile-photo-preview" aria-hidden="true">U<img id="profile-photo-preview" alt="" hidden></div>
+            <div class="profile-photo-controls">
+              <label class="field">Employee picture
+                <input class="control" type="file" name="profile_photo" accept="image/jpeg,image/png,image/webp">
+              </label>
+              <p class="muted">Optional. JPEG, PNG, or WebP; maximum 5 MB.</p>
+            </div>
+          </div>
           ${field('name', 'Full name', 'required placeholder="e.g. Samuel Okello"')}
           ${field('nin', 'National ID (NIN)', 'required')}
           ${field('email', 'Email Address', 'type="email" required')}
@@ -665,14 +731,67 @@ export async function renderEmployees(page) {
               : (form.get('managementlevel') || null),
           }),
         });
+        const photo = form.get('profile_photo');
+        const retryPhotoUpload = async () => {
+          if (!(photo instanceof File)) return;
+          const photoForm = new FormData();
+          photoForm.append('file', photo, photo.name);
+          await apiRequest(`/users/${created.employeeid}/profile-photo`, {
+            method: 'PUT',
+            body: photoForm,
+          });
+        };
+        let photoUploadError = null;
+        if (photo instanceof File && photo.size > 0) {
+          try {
+            await retryPhotoUpload();
+          } catch (error) {
+            photoUploadError = error instanceof Error ? error.message : 'Upload failed.';
+          }
+        }
         if (!created.temporary_password) {
+          if (photoUploadError) {
+            showEmployeePhotoUploadFailure(
+              backdrop.querySelector('.dialog'),
+              created.name,
+              photoUploadError,
+              retryPhotoUpload,
+            );
+            return false;
+          }
           window.location.reload();
           return;
         }
-        showTemporaryPasswordResult(backdrop.querySelector('.dialog'), created);
+        showTemporaryPasswordResult(
+          backdrop.querySelector('.dialog'),
+          created,
+          photoUploadError,
+          retryPhotoUpload,
+        );
         return false;
       },
     });
+    const photoInput = backdrop.querySelector('input[name="profile_photo"]');
+    const photoPreview = backdrop.querySelector('#profile-photo-preview');
+    let previewUrl = null;
+    photoInput.addEventListener('change', () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+      const file = photoInput.files?.[0];
+      photoInput.setCustomValidity(file && file.size > 5 * 1024 * 1024 ? 'Choose an image no larger than 5 MB.' : '');
+      if (!file || photoInput.validationMessage) {
+        photoPreview.hidden = true;
+        photoPreview.removeAttribute('src');
+        if (photoInput.validationMessage) photoInput.reportValidity();
+        return;
+      }
+      previewUrl = URL.createObjectURL(file);
+      photoPreview.src = previewUrl;
+      photoPreview.hidden = false;
+    });
+    backdrop.querySelector('form').addEventListener('submit', () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }, { once: true });
     const roleFields = {
       Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'required'),
       'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),

@@ -8,6 +8,7 @@
 import { signOut } from './auth.js';
 import { getSidebarItems } from './sidebar-config.js';
 import { refreshAlerts, toggleNotificationCenter } from './notifications.js';
+import { escapeHtml } from './ui.js';
 
 const THEME_KEY = 'hw_theme';
 
@@ -34,6 +35,15 @@ function greeting() {
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+function avatarMarkup(user) {
+  const initial = escapeHtml((user.name || 'U').charAt(0));
+  const photoUrl = user.profile_photo_url || (user.roletype === 'Admin' ? '/assets/images/admin-profile.jpg' : null);
+  const image = photoUrl
+    ? `<img src="${escapeHtml(photoUrl)}" alt="" loading="lazy">`
+    : '';
+  return `<div class="avatar">${initial}${image}</div>`;
 }
 
 /**
@@ -93,16 +103,16 @@ export function initShell(user, pageHtml = '') {
           <div class="brand-mark">HW</div>
           <div>
             <strong>HARDWARE WORLD</strong>
-            <small>${user.branch_name || 'Main Branch'}</small>
+            <small>${escapeHtml(user.branch_name || 'Main Branch')}</small>
           </div>
           <button class="icon-btn md:hidden ml-auto" id="close-sidebar" aria-label="Close">✕</button>
         </div>
         <nav id="hw-nav">${navHtml}</nav>
         <div class="sidebar-user">
-          <div class="avatar">${(user.name || 'U').charAt(0)}</div>
+          ${avatarMarkup(user)}
           <div>
-            <strong>${user.name}</strong>
-            <div class="muted">${role} · ${user.department_name || ''}</div>
+            <strong>${escapeHtml(user.name)}</strong>
+            <div class="muted">${escapeHtml(role)} · ${escapeHtml(user.department_name || '')}</div>
           </div>
         </div>
       </aside>
@@ -122,7 +132,7 @@ export function initShell(user, pageHtml = '') {
           </div>
           <div class="topbar-right">
             <!-- Branch selector -->
-            <span class="branch-chip" id="hw-branch-chip">${user.branch_name || 'Main Branch'}</span>
+            <span class="branch-chip" id="hw-branch-chip">${escapeHtml(user.branch_name || 'Main Branch')}</span>
 
             <!-- Date filter -->
             ${isDashboard ? `<select class="date-filter" id="hw-date-filter" aria-label="Date filter">
@@ -153,10 +163,10 @@ export function initShell(user, pageHtml = '') {
 
             <!-- User chip -->
             <div class="user-chip">
-              <div class="avatar">${(user.name || 'U').charAt(0)}</div>
+              ${avatarMarkup(user)}
               <div class="hidden md:block">
-                <p>${user.name}</p>
-                <span>${role}</span>
+                <p>${escapeHtml(user.name)}</p>
+                <span>${escapeHtml(role)}</span>
               </div>
             </div>
             <button class="icon-btn" id="signout-btn" aria-label="Sign out">
@@ -175,6 +185,9 @@ export function initShell(user, pageHtml = '') {
 
   // ── Event wiring ──
   applyTheme(currentTheme());
+  document.querySelectorAll('.avatar img').forEach((image) => {
+    image.addEventListener('error', () => image.remove(), { once: true });
+  });
 
   document.getElementById('theme-btn')?.addEventListener('click', () => {
     const next = currentTheme() === 'dark' ? 'light' : 'dark';

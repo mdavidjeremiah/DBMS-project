@@ -172,7 +172,9 @@ def user_profile(current_user: models.Employee, db: Session):
     permissions = auth.get_user_permissions(db, current_user)
     return {
         "employeeid": current_user.employeeid, "name": current_user.name,
-        "email": current_user.email, "roletype": current_user.roletype.value,
+        "email": current_user.email,
+        "profile_photo_url": f"/api/users/{current_user.employeeid}/profile-photo" if current_user.profile_photo_filename else None,
+        "roletype": current_user.roletype.value,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
         "branchid": current_user.branchid,
