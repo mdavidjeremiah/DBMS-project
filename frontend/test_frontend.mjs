@@ -350,9 +350,61 @@ test('approval navigation uses a real page and supported approval endpoints', as
   assert.match(html, /data-page="approvals"/);
   assert.match(main, /pageName === 'approvals'.*renderApprovals/s);
   assert.match(sidebar, /href: 'approvals\.html'/);
-  for (const endpoint of ['/api/approvals/requisition', '/api/approvals/purchase-order', '/api/approvals/leave']) {
+  for (const endpoint of [
+    '/api/approvals/requisition',
+    '/api/approvals/purchase-order',
+    '/api/approvals/leave',
+    '/api/approvals/stock-adjustment',
+  ]) {
     assert.ok(pages.includes(endpoint), `missing approval endpoint wiring: ${endpoint}`);
   }
+  assert.match(pages, /ADJUSTMENT:\s*\{[\s\S]*permission: 'inventory:approve_adjust'/);
   assert.match(pages, /data-approval-action="APPROVE"/);
   assert.match(pages, /data-approval-action="REJECT"/);
+  assert.match(sidebar, /inventory:approve_adjust/);
+});
+
+test('dynamic product and warehouse labels are escaped before HTML rendering', async () => {
+  const [pages, dashboard] = await Promise.all([
+    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/js/dashboard.js', sourceRoot), 'utf8'),
+  ]);
+  const { escapeHtml } = await import('./assets/js/ui.js');
+
+  assert.equal(escapeHtml('<img src=x onerror="alert(1)">'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
+  assert.match(pages, /escapeHtml\(p\.itemname\)/);
+  assert.match(pages, /escapeHtml\(product\.itemname\)/);
+  assert.match(dashboard, /escapeHtml\(/);
+});
+
+test('employee directory preserves table readability on narrow screens and styles reset action as primary', async () => {
+  const [pages, styles] = await Promise.all([
+    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8'),
+  ]);
+  const employees = pages.slice(pages.indexOf('export async function renderEmployees'), pages.indexOf('const APPROVAL_ACTIONS'));
+
+  assert.match(employees, /id="table" class="employee-directory-table"/);
+  assert.match(employees, /class="btn btn-primary btn-sm" data-reset-password/);
+  assert.match(styles, /\.employee-directory-table \.table-wrap \.data\s*\{[^}]*min-width:\s*78rem/s);
+  assert.match(styles, /\.table-wrap \.data td\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.match(styles, /\.employee-directory-table \.employee-account-actions\s*\{/);
+});
+
+test('shared tables and dashboard summary tables preserve content and scroll horizontally', async () => {
+  const [ui, dashboard, styles] = await Promise.all([
+    readFile(new URL('./assets/js/ui.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/js/dashboard.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8'),
+  ]);
+
+  assert.match(ui, /<div class="table-wrap">\s*<table class="data">/);
+  assert.match(ui, /class="btn btn-primary" data-prev/);
+  assert.match(ui, /class="btn btn-primary" data-next/);
+  assert.match(styles, /\.table-wrap \.data\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*100%/s);
+  assert.match(styles, /\.table-wrap \.data td\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.match(dashboard, /<div class="dashboard-table-wrap">\s*<table class="dashboard-table">/);
+  assert.match(styles, /\.dashboard-table-wrap\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(styles, /\.dashboard-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*100%/s);
+  assert.match(styles, /\.dashboard-table td\s*\{[^}]*white-space:\s*nowrap/s);
 });

@@ -912,14 +912,13 @@ def approve_and_post_payroll(
 # 5. Stocktake & Shrinkage Adjustments
 # =====================================================================
 
-def execute_stock_adjustment(
+def submit_stock_adjustment(
     payload: schemas.StockAdjustmentCreate,
     current_user: models.Employee,
     db: Session,
-    approver: Optional[models.Employee] = None,
     ip_address: Optional[str] = None
 ) -> models.StockAdjustment:
-    """Adjust stock balance with reason code and post shrinkage expense journal."""
+    """Record a stock adjustment request without changing inventory."""
     product = db.get(models.Product, payload.item_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found.")
@@ -930,58 +929,98 @@ def execute_stock_adjustment(
         variance_quantity=payload.variance_quantity,
         reason_code=payload.reason_code,
         requester_id=current_user.employeeid,
-        approver_id=approver.employeeid if approver else current_user.employeeid,
-        status="APPROVED",
+        status="PENDING",
         notes=payload.notes,
         created_at=datetime.utcnow(),
-        approved_at=datetime.utcnow(),
     )
     db.add(adj)
     db.flush()
-
-    # Update InventoryBalance
-    bal = db.query(models.InventoryBalance).filter(
-        models.InventoryBalance.item_id == payload.item_id,
-        models.InventoryBalance.warehouse_id == payload.warehouse_id
-    ).first()
-    if not bal:
-        bal = models.InventoryBalance(
-            item_id=payload.item_id,
-            warehouse_id=payload.warehouse_id,
-            available_stock=payload.variance_quantity,
-            reserved_stock=Decimal("0"),
-        )
-        db.add(bal)
-    else:
-        bal.available_stock += payload.variance_quantity
-        bal.last_updated = datetime.utcnow()
-
-    # Movement record
-    db.add(models.InventoryMovement(
-        item_id=payload.item_id,
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        action="STOCK_ADJUSTMENT_SUBMITTED",
+        module="inventory",
+        entity_type="stock_adjustment",
+        entity_id=adj.adjustment_id,
         warehouse_id=payload.warehouse_id,
-        movement_type="SHRINKAGE" if payload.variance_quantity < 0 else "ADJUSTMENT",
-        quantity=payload.variance_quantity,
-        unit_cost=product.costprice or Decimal("0"),
-        reference_type="ADJUSTMENT",
-        reference_id=adj.adjustment_id,
-        performed_by=current_user.employeeid,
-        notes=f"Adjustment: {payload.reason_code} - {payload.notes or ''}",
-        created_at=datetime.utcnow(),
+        details=f"Submitted stock adjustment for '{product.itemname}' by {payload.variance_quantity} ({payload.reason_code}).",
+        ip_address=ip_address,
     ))
+    db.commit()
+    db.refresh(adj)
+    return adj
 
-    # Finance posting if variance is negative (shrinkage)
-    if payload.variance_quantity < 0:
-        loss_val = abs(payload.variance_quantity) * (product.costprice or Decimal("0"))
+
+def approve_or_reject_stock_adjustment(
+    adjustment_id: int,
+    action: str,
+    approver: models.Employee,
+    notes: Optional[str],
+    db: Session,
+    ip_address: Optional[str] = None,
+) -> models.StockAdjustment:
+    """Approve and post, or reject, a pending stock adjustment."""
+    normalized_action = action.upper()
+    if normalized_action not in {"APPROVE", "REJECT"}:
+        raise HTTPException(status_code=422, detail="Action must be APPROVE or REJECT.")
+    adjustment = db.query(models.StockAdjustment).filter(
+        models.StockAdjustment.adjustment_id == adjustment_id
+    ).with_for_update().first()
+    if not adjustment:
+        raise HTTPException(status_code=404, detail="Stock adjustment not found.")
+    if adjustment.status != "PENDING":
+        raise HTTPException(status_code=409, detail=f"Stock adjustment is already {adjustment.status}.")
+    if adjustment.requester_id == approver.employeeid:
+        raise HTTPException(status_code=403, detail="You cannot decide your own stock adjustment.")
+
+    product = db.get(models.Product, adjustment.item_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    if normalized_action == "APPROVE":
+        balance = db.query(models.InventoryBalance).filter(
+            models.InventoryBalance.item_id == adjustment.item_id,
+            models.InventoryBalance.warehouse_id == adjustment.warehouse_id,
+        ).with_for_update().first()
+        if not balance:
+            if adjustment.variance_quantity < 0:
+                raise HTTPException(status_code=409, detail="Cannot reduce stock below the available balance.")
+            balance = models.InventoryBalance(
+                item_id=adjustment.item_id,
+                warehouse_id=adjustment.warehouse_id,
+                available_stock=Decimal("0"),
+                reserved_stock=Decimal("0"),
+            )
+            db.add(balance)
+        if balance.available_stock + adjustment.variance_quantity < 0:
+            raise HTTPException(status_code=409, detail="Adjustment would reduce stock below zero.")
+        balance.available_stock += adjustment.variance_quantity
+        balance.last_updated = datetime.utcnow()
+        db.add(models.InventoryMovement(
+            item_id=adjustment.item_id,
+            warehouse_id=adjustment.warehouse_id,
+            movement_type="SHRINKAGE" if adjustment.variance_quantity < 0 else "ADJUSTMENT",
+            quantity=adjustment.variance_quantity,
+            unit_cost=product.costprice or Decimal("0"),
+            reference_type="ADJUSTMENT",
+            reference_id=adjustment.adjustment_id,
+            performed_by=approver.employeeid,
+            notes=f"Adjustment: {adjustment.reason_code} - {adjustment.notes or ''}",
+            created_at=datetime.utcnow(),
+        ))
+
+        if adjustment.variance_quantity < 0:
+            loss_val = abs(adjustment.variance_quantity) * (product.costprice or Decimal("0"))
+        else:
+            loss_val = Decimal("0")
         if loss_val > 0:
             jrn = models.JournalEntry(
-                entry_number=f"JRN-ADJ-{adj.adjustment_id}",
+                entry_number=f"JRN-ADJ-{adjustment.adjustment_id}",
                 entry_date=datetime.utcnow(),
-                description=f"Stock shrinkage: {product.itemname} ({payload.reason_code})",
+                description=f"Stock shrinkage: {product.itemname} ({adjustment.reason_code})",
                 reference_type="STOCKTAKE",
-                reference_id=adj.adjustment_id,
+                reference_id=adjustment.adjustment_id,
                 total_amount=loss_val,
-                created_by=current_user.employeeid,
+                created_by=approver.employeeid,
             )
             db.add(jrn)
             db.flush()
@@ -991,7 +1030,7 @@ def execute_stock_adjustment(
                 account_code="5030", # Inventory Shrinkage Expense
                 debit=loss_val,
                 credit=Decimal("0"),
-                description=f"Shrinkage ({payload.reason_code})",
+                description=f"Shrinkage ({adjustment.reason_code})",
             ))
             db.add(models.JournalEntryLine(
                 entry_id=jrn.entry_id,
@@ -1000,20 +1039,25 @@ def execute_stock_adjustment(
                 credit=loss_val,
                 description="Inventory Reduction",
             ))
+        adjustment.status = "APPROVED"
+    else:
+        adjustment.status = "REJECTED"
 
+    adjustment.approver_id = approver.employeeid
+    adjustment.approved_at = datetime.utcnow()
     db.add(models.AuditLog(
-        user_id=current_user.employeeid,
-        action="STOCK_ADJUSTMENT_APPROVED",
+        user_id=approver.employeeid,
+        action=f"STOCK_ADJUSTMENT_{adjustment.status}",
         module="inventory",
         entity_type="stock_adjustment",
-        entity_id=adj.adjustment_id,
-        warehouse_id=payload.warehouse_id,
-        details=f"Adjusted stock for '{product.itemname}' by {payload.variance_quantity} ({payload.reason_code})",
+        entity_id=adjustment.adjustment_id,
+        warehouse_id=adjustment.warehouse_id,
+        details=f"Stock adjustment #{adjustment.adjustment_id} {adjustment.status.lower()} by {approver.name}. Notes: {notes or ''}",
         ip_address=ip_address,
     ))
     db.commit()
-    db.refresh(adj)
-    return adj
+    db.refresh(adjustment)
+    return adjustment
 
 # =====================================================================
 # 6. Opening Stock Recording

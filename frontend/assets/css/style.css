@@ -862,12 +862,60 @@ input[type="checkbox"]:checked + label {
 }
 
 .table-wrap .data {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   color: var(--foreground);
   font-size: 0.84rem;
   text-align: left;
+}
+
+.table-wrap .data td {
+  max-width: none;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.dashboard-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.dashboard-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  padding: 0.6rem 0.75rem;
+  white-space: nowrap;
+}
+
+.dashboard-table th {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.dashboard-table td {
+  border-top: 1px solid var(--border);
+}
+
+.employee-directory-table .table-wrap .data {
+  width: max-content;
+  min-width: 78rem;
+  table-layout: auto;
+}
+
+.employee-directory-table .employee-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
 }
 
 .table-wrap .data th {
@@ -884,11 +932,9 @@ input[type="checkbox"]:checked + label {
 }
 
 .table-wrap .data td {
-  max-width: 20rem;
   padding: 0.8rem 0.9rem;
   border-top: 1px solid var(--border);
   line-height: 1.45;
-  overflow-wrap: anywhere;
 }
 
 .table-wrap .data tbody tr:hover {

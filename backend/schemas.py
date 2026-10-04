@@ -379,8 +379,13 @@ class StockTransferCreate(BaseModel):
 class StockAdjustmentCreate(BaseModel):
     warehouse_id: int
     item_id: int
-    variance_quantity: Decimal  # positive = stock gain, negative = shrinkage
-    reason_code: str  # e.g. SHRINKAGE, DAMAGE, STOCKTAKE, CORRECTION
+    variance_quantity: Decimal = Field(ne=0)  # positive = stock gain, negative = shrinkage
+    reason_code: str = Field(min_length=1, max_length=50)
+    notes: Optional[str] = None
+
+class StockAdjustmentApproval(BaseModel):
+    adjustment_id: int
+    action: str
     notes: Optional[str] = None
 
 # --- User Role Assignment ---

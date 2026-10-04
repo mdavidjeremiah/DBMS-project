@@ -41,6 +41,51 @@ def require_perm(perm_code: str):
         return current_user
     return dependency
 
+
+def employee_branch_ids(db: Session, employee: models.Employee) -> list[int]:
+    assignments = db.query(models.UserBranchAssignment.branch_id).filter(
+        models.UserBranchAssignment.user_id == employee.employeeid
+    ).all()
+    branch_ids = [branch_id for (branch_id,) in assignments]
+    if not branch_ids and employee.branchid:
+        branch_ids.append(employee.branchid)
+    return branch_ids
+
+
+def scope_sales_query(
+    db: Session,
+    employee: models.Employee,
+    query,
+    requested_branch_id: Optional[int] = None,
+):
+    branch_ids = employee_branch_ids(db, employee)
+    if requested_branch_id is not None:
+        if requested_branch_id not in branch_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this branch.")
+        query = query.filter(models.Sale.branchid == requested_branch_id)
+    elif branch_ids:
+        query = query.filter(models.Sale.branchid.in_(branch_ids))
+    else:
+        query = query.filter(models.Sale.branchid.is_(None))
+
+    if employee.roletype == models.RoleType.CASHIER:
+        query = query.filter(models.Sale.employeeid == employee.employeeid)
+    return query
+
+
+PROCUREMENT_READ_PERMISSIONS = (
+    "procurement:view",
+    "procurement:requisition",
+    "procurement:po_create",
+    "procurement:po_approve",
+    "procurement:approve_req",
+    "approvals:approve",
+)
+
+
+def can_view_procurement(db: Session, employee: models.Employee) -> bool:
+    return any(auth.has_permission(db, employee, permission) for permission in PROCUREMENT_READ_PERMISSIONS)
+
 # =====================================================================
 # /api/auth & /api/users
 # =====================================================================
@@ -467,10 +512,14 @@ def create_stock_adjustment(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER, models.RoleType.PROCUREMENT_OFFICER):
-        raise HTTPException(status_code=403, detail="Not authorized to approve stock adjustments.")
+    if not auth.has_permission(db, current_user, "inventory:adjust"):
+        raise HTTPException(status_code=403, detail="Stock adjustment submission permission required.")
+    warehouse = db.get(models.Warehouse, payload.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found.")
+    erp_service.require_warehouse_access(db, current_user, payload.warehouse_id, warehouse.branch_id)
 
-    adj = erp_service.execute_stock_adjustment(
+    adj = erp_service.submit_stock_adjustment(
         payload=payload,
         current_user=current_user,
         db=db,
@@ -560,11 +609,14 @@ def get_api_sales(
 ):
     if not auth.has_permission(db, current_user, "sales:view"):
         raise HTTPException(status_code=403, detail="Sales view permission required.")
-    q = db.query(models.Sale)
-    if branch_id:
-        q = q.filter(models.Sale.branchid == branch_id)
+    q = scope_sales_query(db, current_user, db.query(models.Sale), branch_id)
 
     sales = q.order_by(models.Sale.saledate.desc()).limit(limit).all()
+    branch_ids = {sale.branchid for sale in sales if sale.branchid is not None}
+    branch_names = {
+        branch.branchid: branch.branchname
+        for branch in db.query(models.Branch).filter(models.Branch.branchid.in_(branch_ids)).all()
+    } if branch_ids else {}
     res = []
     for s in sales:
         cashier = db.get(models.Employee, s.employeeid)
@@ -577,7 +629,7 @@ def get_api_sales(
             "payment_method": s.paymentmethod,
             "customer_name": customer.name if customer else "Walk-in Customer",
             "cashier_name": cashier.name if cashier else "Unknown Cashier",
-            "branch_name": s.branch.branchname if s.branch else "Unknown",
+            "branch_name": branch_names.get(s.branchid, "Unknown"),
             "items": [
                 {
                     "itemid": i.itemid,
@@ -621,7 +673,12 @@ def get_requisitions(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    reqs = db.query(models.PurchaseRequisition).order_by(models.PurchaseRequisition.created_at.desc()).all()
+    if not can_view_procurement(db, current_user):
+        raise HTTPException(status_code=403, detail="Procurement view permission required.")
+    branch_ids = employee_branch_ids(db, current_user)
+    req_query = db.query(models.PurchaseRequisition)
+    req_query = req_query.filter(models.PurchaseRequisition.branch_id.in_(branch_ids)) if branch_ids else req_query.filter(models.PurchaseRequisition.branch_id.is_(None))
+    reqs = req_query.order_by(models.PurchaseRequisition.created_at.desc()).all()
     res = []
     for r in reqs:
         requester = db.get(models.Employee, r.requester_id)
@@ -690,10 +747,15 @@ def get_api_purchase_orders(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    orders = db.query(models.PurchaseOrder).order_by(models.PurchaseOrder.orderdate.desc()).all()
+    if not can_view_procurement(db, current_user):
+        raise HTTPException(status_code=403, detail="Procurement view permission required.")
+    branch_ids = employee_branch_ids(db, current_user)
+    order_query = db.query(models.PurchaseOrder)
+    order_query = order_query.filter(models.PurchaseOrder.branch_id.in_(branch_ids)) if branch_ids else order_query.filter(models.PurchaseOrder.branch_id.is_(None))
+    orders = order_query.order_by(models.PurchaseOrder.orderdate.desc()).all()
     res = []
     for o in orders:
-        supplier = db.get(models.Supplier, o.supplierid)
+        supplier = db.get(models.Supplier, o.supplierid) if o.supplierid else None
         officer = db.get(models.Employee, o.employeeid)
         res.append({
             "po_id": o.po_id,
@@ -713,6 +775,12 @@ def create_api_purchase_order(
 ):
     if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER):
         raise HTTPException(status_code=403, detail="Not authorized to create purchase orders.")
+    branch_id = payload.branchid or current_user.branchid
+    if branch_id is None:
+        raise HTTPException(status_code=400, detail="A branch must be assigned to create a purchase order.")
+    if not db.get(models.Branch, branch_id):
+        raise HTTPException(status_code=404, detail="Branch not found.")
+    erp_service.require_branch_access(db, current_user, branch_id)
 
     total = Decimal("0")
     if payload.items:
@@ -728,7 +796,7 @@ def create_api_purchase_order(
     po = models.PurchaseOrder(
         supplierid=payload.supplierid,
         employeeid=current_user.employeeid,
-        branchid=payload.branchid or current_user.branchid,
+        branch_id=branch_id,
         status=models.POStatus.APPROVED if auto_approve else models.POStatus.PENDING,
         total_amount=total,
         orderdate=datetime.utcnow(),
@@ -1257,10 +1325,14 @@ def get_pending_approvals(
     can_approve_all = auth.has_permission(db, current_user, "approvals:approve")
 
     # Purchase Requisitions
+    branch_ids = employee_branch_ids(db, current_user)
     if (not module or module == "REQUISITION") and (
         can_approve_all or auth.has_permission(db, current_user, "procurement:approve_req")
     ):
-        reqs = db.query(models.PurchaseRequisition).filter(models.PurchaseRequisition.status == "PENDING").all()
+        reqs = db.query(models.PurchaseRequisition).filter(
+            models.PurchaseRequisition.status == "PENDING",
+            models.PurchaseRequisition.branch_id.in_(branch_ids) if branch_ids else models.PurchaseRequisition.branch_id.is_(None),
+        ).all()
         for r in reqs:
             requester = db.get(models.Employee, r.requester_id)
             result.append({
@@ -1277,7 +1349,10 @@ def get_pending_approvals(
     if (not module or module == "PO") and (
         can_approve_all or auth.has_permission(db, current_user, "procurement:po_approve")
     ):
-        pos = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.status == models.POStatus.PENDING).all()
+        pos = db.query(models.PurchaseOrder).filter(
+            models.PurchaseOrder.status == models.POStatus.PENDING,
+            models.PurchaseOrder.branch_id.in_(branch_ids) if branch_ids else models.PurchaseOrder.branch_id.is_(None),
+        ).all()
         for p in pos:
             supplier = db.get(models.Supplier, p.supplierid)
             result.append({
@@ -1294,7 +1369,12 @@ def get_pending_approvals(
     if (not module or module == "LEAVE") and (
         can_approve_all or auth.has_permission(db, current_user, "hr:leave")
     ):
-        leaves = db.query(models.LeaveRequest).filter(models.LeaveRequest.status == "PENDING").all()
+        leaves = db.query(models.LeaveRequest).join(
+            models.Employee, models.Employee.employeeid == models.LeaveRequest.employee_id
+        ).filter(
+            models.LeaveRequest.status == "PENDING",
+            models.Employee.branchid.in_(branch_ids) if branch_ids else models.Employee.branchid.is_(None),
+        ).all()
         for lv in leaves:
             emp = db.get(models.Employee, lv.employee_id)
             result.append({
@@ -1310,7 +1390,12 @@ def get_pending_approvals(
     if (not module or module == "ADJUSTMENT") and (
         can_approve_all or auth.has_permission(db, current_user, "inventory:approve_adjust")
     ):
-        adjs = db.query(models.StockAdjustment).filter(models.StockAdjustment.status == "PENDING").all()
+        adjs = db.query(models.StockAdjustment).join(
+            models.Warehouse, models.Warehouse.warehouse_id == models.StockAdjustment.warehouse_id
+        ).filter(
+            models.StockAdjustment.status == "PENDING",
+            models.Warehouse.branch_id.in_(branch_ids) if branch_ids else models.Warehouse.branch_id.is_(None),
+        ).all()
         for a in adjs:
             requester = db.get(models.Employee, a.requester_id)
             result.append({
@@ -1324,6 +1409,33 @@ def get_pending_approvals(
             })
 
     return sorted(result, key=lambda x: x["created_at"] or "", reverse=True)
+
+
+@api_router.post("/approvals/stock-adjustment", tags=["Approvals"])
+def approve_stock_adjustment(
+    payload: schemas.StockAdjustmentApproval,
+    request: Request,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.has_permission(db, current_user, "inventory:approve_adjust"):
+        raise HTTPException(status_code=403, detail="You do not have stock adjustment approval permission.")
+    adjustment = db.get(models.StockAdjustment, payload.adjustment_id)
+    if not adjustment:
+        raise HTTPException(status_code=404, detail="Stock adjustment not found.")
+    warehouse = db.get(models.Warehouse, adjustment.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found.")
+    erp_service.require_warehouse_access(db, current_user, adjustment.warehouse_id, warehouse.branch_id)
+    result = erp_service.approve_or_reject_stock_adjustment(
+        adjustment_id=payload.adjustment_id,
+        action=payload.action,
+        approver=current_user,
+        notes=payload.notes,
+        db=db,
+        ip_address=request_ip(request),
+    )
+    return {"adjustment_id": result.adjustment_id, "status": result.status}
 
 
 @api_router.post("/approvals/requisition", tags=["Approvals"])
@@ -2005,9 +2117,12 @@ def sales_report(
 ):
     if not auth.has_permission(db, current_user, "sales:view"):
         raise HTTPException(status_code=403, detail="Sales view permission required.")
-    q = db.query(models.Sale).filter(models.Sale.status == "COMPLETED")
-    if branch_id:
-        q = q.filter(models.Sale.branchid == branch_id)
+    q = scope_sales_query(
+        db,
+        current_user,
+        db.query(models.Sale).filter(models.Sale.status == "COMPLETED"),
+        branch_id,
+    )
     if date_from:
         q = q.filter(models.Sale.saledate >= date_from)
     if date_to:

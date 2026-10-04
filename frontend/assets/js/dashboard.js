@@ -16,6 +16,7 @@
 import { apiRequest } from './api.js';
 import { can, hasRole, getCurrentUser } from './permissions.js';
 import { renderAlertBanner, toast } from './notifications.js';
+import { escapeHtml } from './ui.js';
 
 // ── Shared helpers ────────────────────────────────────────────────
 
@@ -90,8 +91,8 @@ function tableHtml(cols, rows, emptyMsg = 'No records found.') {
     return `<div class="empty-state card" style="text-align:center;padding:2rem;color:var(--muted-foreground)">${emptyMsg}</div>`;
   }
   return `
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:.875rem">
+    <div class="dashboard-table-wrap">
+      <table class="dashboard-table">
         <thead>
           <tr style="border-bottom:2px solid var(--border)">
             ${cols.map((c) => `<th style="text-align:left;padding:.5rem .75rem;color:var(--muted-foreground);font-weight:600;white-space:nowrap">${c}</th>`).join('')}
@@ -299,8 +300,8 @@ function renderProcurementDashboard(el, alertsEl, data, user) {
           const reorder = parseInt(item.reorder_level || 0);
           const statusKey = avail <= 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK';
           return [
-            `<strong>${item.item_name}</strong>`,
-            item.warehouse_name,
+            `<strong>${escapeHtml(item.item_name)}</strong>`,
+            escapeHtml(item.warehouse_name),
             `${avail} units`,
             `${reorder} units`,
             statusBadge(statusKey),

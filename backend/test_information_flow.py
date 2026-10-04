@@ -59,13 +59,27 @@ class InformationFlowTests(unittest.TestCase):
 
     def tearDown(self):
         main.app.dependency_overrides.clear()
+        self.db.query(models.JournalEntryLine).delete()
+        self.db.query(models.JournalEntry).delete()
+        self.db.query(models.InventoryMovement).delete()
+        self.db.query(models.StockAdjustment).delete()
+        self.db.query(models.InventoryBalance).delete()
+        self.db.query(models.SaleItem).delete()
+        self.db.query(models.Payment).delete()
+        self.db.query(models.SalesReturn).delete()
+        self.db.query(models.Sale).delete()
+        self.db.query(models.UserBranchAssignment).delete()
         self.db.query(models.PasswordEvent).delete()
         self.db.query(models.AuditLog).delete()
         self.db.query(models.EmployeeERPRole).delete()
         self.db.query(models.UserRole).delete()
+        self.db.query(models.Product).delete()
         self.db.query(models.Category).delete()
+        self.db.query(models.PurchaseOrder).delete()
+        self.db.query(models.Supplier).delete()
         self.db.query(models.Warehouse).delete()
         self.db.query(models.PurchaseRequisition).delete()
+        self.db.query(models.ChartOfAccount).delete()
         self.db.query(models.Employee).delete()
         self.db.query(models.Department).delete()
         self.db.query(models.Branch).delete()
@@ -104,10 +118,294 @@ class InformationFlowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_sales_endpoints_enforce_assigned_branch_and_cashier_ownership(self):
+        branch_a = models.Branch(branchname="Sales Branch A", location="Test")
+        branch_b = models.Branch(branchname="Sales Branch B", location="Test")
+        self.db.add_all([branch_a, branch_b])
+        self.db.flush()
+        cashier = models.Employee(
+            name="Scoped Cashier",
+            nin="FLOW-SALES-CASHIER",
+            email="scoped.cashier@example.com",
+            hashed_password=auth.get_password_hash("cashier-password-2026"),
+            roletype=models.RoleType.CASHIER,
+            branchid=branch_a.branchid,
+        )
+        other_cashier = models.Employee(
+            name="Other Cashier",
+            nin="FLOW-SALES-CASHIER-2",
+            email="other.cashier@example.com",
+            hashed_password=auth.get_password_hash("cashier-password-2026"),
+            roletype=models.RoleType.CASHIER,
+            branchid=branch_b.branchid,
+        )
+        self.db.add_all([cashier, other_cashier])
+        self.db.flush()
+        self.db.add_all([
+            models.Sale(employeeid=cashier.employeeid, branchid=branch_a.branchid, totalamount=100, status="COMPLETED"),
+            models.Sale(employeeid=other_cashier.employeeid, branchid=branch_b.branchid, totalamount=900, status="COMPLETED"),
+        ])
+        self.db.commit()
+        main.app.dependency_overrides[auth.get_current_user] = lambda: cashier
+
+        with patch("api_router.auth.has_permission", return_value=True):
+            sales = self.client.get("/api/sales")
+            report = self.client.get("/api/reports/sales")
+            other_branch = self.client.get(f"/api/sales?branch_id={branch_b.branchid}")
+
+        self.assertEqual(sales.status_code, 200, sales.text)
+        self.assertEqual([sale["totalamount"] for sale in sales.json()], [100.0])
+        self.assertEqual(report.status_code, 200, report.text)
+        self.assertEqual(report.json()["total_revenue"], 100.0)
+        self.assertEqual(other_branch.status_code, 403, other_branch.text)
+
+    def test_procurement_lists_require_permission_and_stay_in_assigned_branch(self):
+        branch_a = models.Branch(branchname="Procurement Branch A", location="Test")
+        branch_b = models.Branch(branchname="Procurement Branch B", location="Test")
+        self.db.add_all([branch_a, branch_b])
+        self.db.flush()
+        employee = models.Employee(
+            name="Scoped Procurement",
+            nin="FLOW-PROCUREMENT-USER",
+            email="scoped.procurement@example.com",
+            hashed_password=auth.get_password_hash("procurement-password-2026"),
+            roletype=models.RoleType.PROCUREMENT_OFFICER,
+            branchid=branch_a.branchid,
+        )
+        supplier = models.Supplier(suppliername="Scoped Test Supplier")
+        self.db.add_all([employee, supplier])
+        self.db.flush()
+        self.db.add_all([
+            models.PurchaseRequisition(reference="REQ-SCOPE-A", branch_id=branch_a.branchid, requested_by=employee.employeeid, status="PENDING"),
+            models.PurchaseRequisition(reference="REQ-SCOPE-B", branch_id=branch_b.branchid, requested_by=employee.employeeid, status="PENDING"),
+            models.PurchaseOrder(
+                employeeid=employee.employeeid,
+                branch_id=branch_a.branchid,
+                status=models.POStatus.PENDING,
+                total_amount=100,
+            ),
+            models.PurchaseOrder(
+                employeeid=employee.employeeid,
+                branch_id=branch_b.branchid,
+                status=models.POStatus.PENDING,
+                total_amount=900,
+            ),
+        ])
+        self.db.commit()
+        main.app.dependency_overrides[auth.get_current_user] = lambda: employee
+
+        with patch("api_router.auth.has_permission", return_value=False):
+            denied_reqs = self.client.get("/api/purchase-requisitions")
+            denied_pos = self.client.get("/api/purchase-orders")
+        self.assertEqual(denied_reqs.status_code, 403)
+        self.assertEqual(denied_pos.status_code, 403)
+
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "procurement:requisition",
+        ):
+            scoped_reqs = self.client.get("/api/purchase-requisitions")
+        self.assertEqual(scoped_reqs.status_code, 200, scoped_reqs.text)
+        self.assertEqual([req["requisition_id"] for req in scoped_reqs.json()], [
+            self.db.query(models.PurchaseRequisition).filter_by(reference="REQ-SCOPE-A").one().requisition_id
+        ])
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "procurement:po_create",
+        ):
+            scoped_orders = self.client.get("/api/purchase-orders")
+        self.assertEqual(scoped_orders.status_code, 200, scoped_orders.text)
+        self.assertEqual(len(scoped_orders.json()), 1)
+        self.assertEqual(scoped_orders.json()[0]["total_amount"], 100.0)
+
+        out_of_branch = self.client.post(
+            "/api/purchase-orders",
+            json={"supplierid": supplier.supplierid, "branchid": branch_b.branchid, "items": []},
+            headers={"Origin": "http://127.0.0.1:8000"},
+        )
+        self.assertEqual(out_of_branch.status_code, 403, out_of_branch.text)
+        own_branch = self.client.post(
+            "/api/purchase-orders",
+            json={"supplierid": supplier.supplierid, "branchid": branch_a.branchid, "items": []},
+            headers={"Origin": "http://127.0.0.1:8000"},
+        )
+        self.assertEqual(own_branch.status_code, 200, own_branch.text)
+        scoped_orders = self.client.get("/api/purchase-orders")
+        self.assertEqual(len(scoped_orders.json()), 2)
+
+    def test_stock_adjustment_is_pending_until_authorized_non_requester_approves(self):
+        branch = models.Branch(branchname="Adjustment Branch", location="Test")
+        self.db.add(branch)
+        self.db.flush()
+        warehouse = models.Warehouse(branch_id=branch.branchid, warehouse_name="Adjustment Warehouse")
+        category = models.Category(categoryname="Adjustment Category")
+        self.db.add_all([warehouse, category])
+        self.db.flush()
+        product = models.Product(
+            itemname="Adjustment Test Product",
+            unitprice=100,
+            costprice=10,
+            categoryid=category.categoryid,
+        )
+        requester = models.Employee(
+            name="Adjustment Requester",
+            nin="FLOW-ADJUST-REQUESTER",
+            email="adjustment.requester@example.com",
+            hashed_password=auth.get_password_hash("requester-password-2026"),
+            roletype=models.RoleType.PROCUREMENT_OFFICER,
+            branchid=branch.branchid,
+        )
+        approver = models.Employee(
+            name="Adjustment Approver",
+            nin="FLOW-ADJUST-APPROVER",
+            email="adjustment.approver@example.com",
+            hashed_password=auth.get_password_hash("approver-password-2026"),
+            roletype=models.RoleType.BRANCH_MANAGER,
+            branchid=branch.branchid,
+        )
+        self.db.add_all([product, requester, approver])
+        self.db.flush()
+        self.db.add(models.InventoryBalance(
+            item_id=product.itemid,
+            warehouse_id=warehouse.warehouse_id,
+            available_stock=10,
+            reserved_stock=0,
+        ))
+        self.db.add_all([
+            models.UserBranchAssignment(user_id=requester.employeeid, branch_id=branch.branchid),
+            models.UserBranchAssignment(user_id=approver.employeeid, branch_id=branch.branchid),
+            models.ChartOfAccount(
+                account_code="5030",
+                account_name="Inventory Shrinkage Expense",
+                account_type="EXPENSE",
+            ),
+            models.ChartOfAccount(
+                account_code="1050",
+                account_name="Inventory Asset",
+                account_type="ASSET",
+            ),
+        ])
+        self.db.commit()
+
+        main.app.dependency_overrides[auth.get_current_user] = lambda: requester
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:adjust",
+        ):
+            submitted = self.client.post(
+                "/api/stock-adjustments",
+                json={
+                    "warehouse_id": warehouse.warehouse_id,
+                    "item_id": product.itemid,
+                    "variance_quantity": -2,
+                    "reason_code": "STOCKTAKE",
+                },
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        adjustment_id = submitted.json()["adjustment_id"]
+        self.assertEqual(submitted.json()["status"], "PENDING")
+        balance = self.db.query(models.InventoryBalance).filter_by(item_id=product.itemid).one()
+        self.assertEqual(float(balance.available_stock), 10.0)
+        self.assertEqual(self.db.query(models.InventoryMovement).filter_by(reference_id=adjustment_id).count(), 0)
+
+        main.app.dependency_overrides[auth.get_current_user] = lambda: requester
+        with patch("api_router.auth.has_permission", return_value=True):
+            self_approval = self.client.post(
+                "/api/approvals/stock-adjustment",
+                json={"adjustment_id": adjustment_id, "action": "APPROVE"},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        self.assertEqual(self_approval.status_code, 403)
+
+        main.app.dependency_overrides[auth.get_current_user] = lambda: approver
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:approve_adjust",
+        ):
+            approved = self.client.post(
+                "/api/approvals/stock-adjustment",
+                json={"adjustment_id": adjustment_id, "action": "APPROVE"},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        self.assertEqual(approved.status_code, 200, approved.text)
+        self.assertEqual(approved.json()["status"], "APPROVED")
+        balance = self.db.query(models.InventoryBalance).filter_by(item_id=product.itemid).one()
+        self.assertEqual(float(balance.available_stock), 8.0)
+        self.assertEqual(self.db.query(models.InventoryMovement).filter_by(reference_id=adjustment_id).count(), 1)
+        journal = self.db.query(models.JournalEntry).filter_by(reference_id=adjustment_id).one()
+        self.assertEqual(float(journal.total_amount), 20.0)
+        self.assertEqual(
+            self.db.query(models.JournalEntryLine).filter_by(entry_id=journal.entry_id).count(),
+            2,
+        )
+
+        main.app.dependency_overrides[auth.get_current_user] = lambda: requester
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:adjust",
+        ):
+            rejected_submission = self.client.post(
+                "/api/stock-adjustments",
+                json={
+                    "warehouse_id": warehouse.warehouse_id,
+                    "item_id": product.itemid,
+                    "variance_quantity": 1,
+                    "reason_code": "STOCKTAKE",
+                },
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        rejected_id = rejected_submission.json()["adjustment_id"]
+        main.app.dependency_overrides[auth.get_current_user] = lambda: approver
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:approve_adjust",
+        ):
+            rejected = self.client.post(
+                "/api/approvals/stock-adjustment",
+                json={"adjustment_id": rejected_id, "action": "REJECT"},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertEqual(rejected.json()["status"], "REJECTED")
+        self.assertEqual(float(balance.available_stock), 8.0)
+        self.assertEqual(self.db.query(models.InventoryMovement).filter_by(reference_id=rejected_id).count(), 0)
+
+        main.app.dependency_overrides[auth.get_current_user] = lambda: requester
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:adjust",
+        ):
+            excessive_submission = self.client.post(
+                "/api/stock-adjustments",
+                json={
+                    "warehouse_id": warehouse.warehouse_id,
+                    "item_id": product.itemid,
+                    "variance_quantity": -20,
+                    "reason_code": "STOCKTAKE",
+                },
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        excessive_id = excessive_submission.json()["adjustment_id"]
+        main.app.dependency_overrides[auth.get_current_user] = lambda: approver
+        with patch(
+            "api_router.auth.has_permission",
+            side_effect=lambda _db, _user, permission: permission == "inventory:approve_adjust",
+        ):
+            excessive_approval = self.client.post(
+                "/api/approvals/stock-adjustment",
+                json={"adjustment_id": excessive_id, "action": "APPROVE"},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        self.assertEqual(excessive_approval.status_code, 409, excessive_approval.text)
+        balance = self.db.query(models.InventoryBalance).filter_by(item_id=product.itemid).one()
+        self.assertEqual(float(balance.available_stock), 8.0)
+
     def test_approvals_are_visible_only_to_users_with_approval_permission(self):
         branch = models.Branch(branchname="Approvals Branch", location="Test")
         self.db.add(branch)
         self.db.flush()
+        self.admin.branchid = branch.branchid
         requester = models.Employee(
             name="Approval Requester",
             nin="FLOW-REQUESTER-001",

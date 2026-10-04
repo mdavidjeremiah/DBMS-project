@@ -1,5 +1,5 @@
 import { apiRequest, API_URL, loadList } from './api.js';
-import { field, money, openDialog, renderLoadingState, renderTable, selectField, showNotice } from './ui.js';
+import { escapeHtml, field, money, openDialog, renderLoadingState, renderTable, selectField, showNotice } from './ui.js';
 import { icons } from './icons.js';
 import { buildGraphData, renderGraph } from './graph.js';
 import { getCurrentUser, can } from './permissions.js';
@@ -142,7 +142,7 @@ export async function renderCrud(page, config) {
       ${config.create ? `<button class="btn btn-primary" id="add-btn">${icons.plus} ${config.create.trigger}</button>` : ''}
     </header>
     <div id="notice"></div>
-    <div id="table"></div>
+    <div id="table" class="employee-directory-table"></div>
   `;
   showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
   if (!result.error) {
@@ -318,7 +318,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
           <select class="control" id="product-select" style="flex:1">
             <option value="">Select a product</option>
-            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
+            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${escapeHtml(p.itemname)} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
           </select>
           <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
         </div>
@@ -405,7 +405,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
     } else {
       box.innerHTML = lines.map((line) => {
         const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
+        return `<div class="line" data-id="${line.itemid}"><div><strong>${escapeHtml(product.itemname)}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
       }).join('');
     }
     const total = lines.reduce((sum, line) => {
@@ -539,7 +539,7 @@ export async function renderEmployees(page) {
       <button class="btn btn-primary" id="add-btn">${icons.plus} Add Employee</button>
     </header>
     <div id="notice"></div>
-    <div id="table"></div>
+    <div id="table" class="employee-directory-table"></div>
   `;
   const loadError = employees.error || branches.error || departments.error;
   showNotice(page.querySelector('#notice'), loadError, { onRetry: () => window.location.reload() });
@@ -558,7 +558,7 @@ export async function renderEmployees(page) {
         header: 'Account Actions',
         key: 'employeeid',
         cell: (employee) => can('admin:users') && employee.employeeid !== getCurrentUser()?.employeeid
-          ? `<div class="flex gap-2"><button class="btn btn-outline btn-sm" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}</div>`
+          ? `<div class="employee-account-actions"><button class="btn btn-primary btn-sm" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}</div>`
           : '',
       },
     ],
@@ -766,6 +766,11 @@ const APPROVAL_ACTIONS = {
     permission: 'hr:leave',
     endpoint: '/api/approvals/leave',
     idField: 'leave_id',
+  },
+  ADJUSTMENT: {
+    permission: 'inventory:approve_adjust',
+    endpoint: '/api/approvals/stock-adjustment',
+    idField: 'adjustment_id',
   },
 };
 

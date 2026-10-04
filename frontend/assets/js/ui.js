@@ -93,9 +93,9 @@ export function renderTable(container, { columns, data, searchKey }) {
       <div class="pager">
         <div>Showing <strong>${start}</strong> to <strong>${end}</strong> of <strong>${rows.length}</strong> entries</div>
         <div>
-          <button class="btn btn-outline" data-prev>Prev</button>
+          <button class="btn btn-primary" data-prev>Prev</button>
           <span>Page ${page} of ${totalPages}</span>
-          <button class="btn btn-outline" data-next>Next</button>
+          <button class="btn btn-primary" data-next>Next</button>
         </div>
       </div>
     `;

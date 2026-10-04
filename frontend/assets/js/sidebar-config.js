@@ -54,7 +54,7 @@ export const SIDEBAR_CONFIG = {
     { label: 'Stock Levels', icon: 'package', href: 'products.html', perm: 'inventory:view' },
 
     { section: 'Procurement' },
-    { label: 'Approvals', icon: 'check-circle', href: 'approvals.html', perm: ['procurement:approve_req', 'procurement:po_approve'] },
+    { label: 'Approvals', icon: 'check-circle', href: 'approvals.html', perm: ['procurement:approve_req', 'procurement:po_approve', 'inventory:approve_adjust'] },
     { label: 'Purchase Orders', icon: 'file-text', href: 'purchase-orders.html', perm: 'procurement:po_create' },
 
     { section: 'Suppliers' },
@@ -101,7 +101,7 @@ export const SIDEBAR_CONFIG = {
 
     { section: 'Sales & Revenue' },
     { label: 'Sales Performance', icon: 'trending-up', href: 'sales.html', perm: 'sales:view' },
-    { label: 'Pending Approvals', icon: 'check-circle', href: 'approvals.html', perm: ['procurement:approve_req', 'procurement:po_approve', 'approvals:approve'] },
+    { label: 'Pending Approvals', icon: 'check-circle', href: 'approvals.html', perm: ['procurement:approve_req', 'procurement:po_approve', 'inventory:approve_adjust', 'approvals:approve'] },
 
     { section: 'Inventory & Procurement' },
     { label: 'Stock Summary', icon: 'package', href: 'products.html', perm: 'inventory:view' },
