@@ -151,8 +151,8 @@ test('employee photo provisioning and shared avatar locations use profile photo 
   ]);
 
   assert.match(pages, /name="profile_photo"/);
-  assert.match(pages, /accept="image\/jpeg,image\/png,image\/webp"/);
-  assert.match(pages, /apiRequest\(`\/users\/\$\{created\.employeeid\}\/profile-photo`/);
+  assert.match(pages, /accept="\.jpg,\.jpeg,image\/jpeg,\.png,image\/png,\.webp,image\/webp"/);
+  assert.match(pages, /apiRequest\(`\/api\/users\/\$\{created\.employeeid\}\/profile-photo`/);
   assert.match(pages, /Retry photo upload/);
   assert.match(shell, /user\.profile_photo_url/);
   assert.equal((shell.match(/\$\{avatarMarkup\(user\)\}/g) || []).length, 2);
@@ -186,6 +186,29 @@ test('employee provisioning requires an explicit role and renders matching role-
   assert.match(employeeForm, /employeeRoleFields\(roleSelect\.value\)/);
   assert.match(employeeForm, /role controls could not be initialized/);
   assert.doesNotMatch(employeeForm, /id="role-fields">\$\{field\('pos_terminalid'/);
+});
+
+test('employee directory lets authorized staff add or change an employee photo later', async () => {
+  const [pages, main, styles] = await Promise.all([
+    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('../backend/main.py', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8'),
+  ]);
+  const employeeForm = pages.slice(
+    pages.indexOf('export async function renderEmployees'),
+    pages.indexOf('// Stub exports for page renderers'),
+  );
+  const employeeList = main.slice(main.indexOf('@app.get("/employees"'), main.indexOf('@app.post("/employees"'));
+
+  assert.match(employeeForm, /can\('admin:users'\) \|\| can\('hr:manage'\)/);
+  assert.match(employeeForm, /data-profile-photo="\$\{employee\.employeeid\}"/);
+  assert.match(employeeForm, /employee\.profile_photo_url \? 'Change photo' : 'Add photo'/);
+  assert.match(employeeForm, /openDialog\(\{[\s\S]*title: employee\.profile_photo_url \? 'Change employee photo' : 'Add employee photo'/);
+  assert.match(employeeForm, /accept="\.jpg,\.jpeg,image\/jpeg,\.png,image\/png,\.webp,image\/webp" required/);
+  assert.match(employeeForm, /apiRequest\(`\/api\/users\/\$\{employee\.employeeid\}\/profile-photo`/);
+  assert.match(employeeList, /"profile_photo_url": employee_profile_photo_url\(e\)/);
+  assert.match(styles, /\.employee-photo-dialog-preview\s*\{/);
+  assert.match(styles, /\.employee-photo-dialog-image/);
 });
 
 test('admin requests a server-generated temporary password in the employee form', async () => {
@@ -237,7 +260,7 @@ test('apiRequest leaves the multipart boundary to the browser for profile photo 
 
   try {
     const { apiRequest } = await import(`./assets/js/api.js?multipart-test=${Date.now()}`);
-    await apiRequest('/users/1/profile-photo', { method: 'PUT', body: new FormData() });
+    await apiRequest('/api/users/1/profile-photo', { method: 'PUT', body: new FormData() });
     assert.equal(requestOptions.headers.has('Content-Type'), false);
     assert.equal(requestOptions.credentials, 'include');
   } finally {
@@ -490,7 +513,7 @@ test('employee directory preserves table readability on narrow screens and style
   const employees = pages.slice(pages.indexOf('export async function renderEmployees'), pages.indexOf('const APPROVAL_ACTIONS'));
 
   assert.match(employees, /id="table" class="employee-directory-table"/);
-  assert.match(employees, /class="btn btn-primary btn-sm" data-reset-password/);
+  assert.match(employees, /class="btn btn-primary btn-sm" type="button" data-reset-password/);
   assert.match(styles, /\.employee-directory-table \.table-wrap \.data\s*\{[^}]*min-width:\s*78rem/s);
   assert.match(styles, /\.table-wrap \.data td\s*\{[^}]*white-space:\s*nowrap/s);
   assert.match(styles, /\.employee-directory-table \.employee-account-actions\s*\{/);

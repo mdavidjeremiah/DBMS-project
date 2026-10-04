@@ -626,15 +626,80 @@ export async function renderEmployees(page) {
       {
         header: 'Account Actions',
         key: 'employeeid',
-        cell: (employee) => can('admin:users') && employee.employeeid !== getCurrentUser()?.employeeid
-          ? `<div class="employee-account-actions"><button class="btn btn-primary btn-sm" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}</div>`
-          : '',
+        cell: (employee) => {
+          const canManagePhotos = can('admin:users') || can('hr:manage');
+          const canManageAccount = can('admin:users') && employee.employeeid !== getCurrentUser()?.employeeid;
+          if (!canManagePhotos && !canManageAccount) return '';
+          return `<div class="employee-account-actions">
+            ${canManagePhotos ? `<button class="btn btn-outline btn-sm" type="button" data-profile-photo="${employee.employeeid}">${employee.profile_photo_url ? 'Change photo' : 'Add photo'}</button>` : ''}
+            ${canManageAccount ? `<button class="btn btn-primary btn-sm" type="button" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" type="button" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}` : ''}
+          </div>`;
+        },
       },
     ],
     data: employees.data,
     searchKey: 'name',
   });
   page.querySelector('#table').addEventListener('click', async (event) => {
+    const photoButton = event.target.closest('[data-profile-photo]');
+    if (photoButton) {
+      const employee = employees.data.find((item) => item.employeeid === Number(photoButton.dataset.profilePhoto));
+      if (!employee) return;
+      const existingPhoto = employee.profile_photo_url
+        ? `<img class="employee-photo-dialog-image" src="${escapeHtml(employee.profile_photo_url)}" alt="">`
+        : `<div class="avatar employee-photo-dialog-avatar" aria-hidden="true">${escapeHtml((employee.name || 'U').charAt(0))}</div>`;
+      const backdrop = openDialog({
+        title: employee.profile_photo_url ? 'Change employee photo' : 'Add employee photo',
+        description: `Choose a profile photo for ${employee.name}. It will appear in their dashboard user chip and sidebar.`,
+        bodyHtml: `
+          <div class="employee-photo-dialog">
+            <div class="employee-photo-dialog-preview">${existingPhoto}</div>
+            <label class="field">Employee picture
+              <input class="control" type="file" name="profile_photo" accept=".jpg,.jpeg,image/jpeg,.png,image/png,.webp,image/webp" required>
+            </label>
+            <p class="muted">JPG/JPEG, PNG, or WebP; maximum 5 MB.</p>
+          </div>
+        `,
+        submitLabel: 'Save photo',
+        onSubmit: async (form) => {
+          const photo = form.get('profile_photo');
+          if (!(photo instanceof File) || photo.size === 0) {
+            throw new Error('Choose an image to upload.');
+          }
+          if (photo.size > 5 * 1024 * 1024) {
+            throw new Error('Choose an image no larger than 5 MB.');
+          }
+          const upload = new FormData();
+          upload.append('file', photo, photo.name);
+          await apiRequest(`/api/users/${employee.employeeid}/profile-photo`, {
+            method: 'PUT',
+            body: upload,
+          });
+          window.location.reload();
+        },
+      });
+      const photoInput = backdrop.querySelector('input[name="profile_photo"]');
+      const preview = backdrop.querySelector('.employee-photo-dialog-preview');
+      let previewUrl = null;
+      photoInput.addEventListener('change', () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = null;
+        const photo = photoInput.files?.[0];
+        if (!photo) return;
+        if (photo.size > 5 * 1024 * 1024) {
+          photoInput.setCustomValidity('Choose an image no larger than 5 MB.');
+          photoInput.reportValidity();
+          return;
+        }
+        photoInput.setCustomValidity('');
+        previewUrl = URL.createObjectURL(photo);
+        preview.innerHTML = `<img class="employee-photo-dialog-image" src="${escapeHtml(previewUrl)}" alt="Selected employee photo preview">`;
+      });
+      backdrop.querySelector('[data-cancel]').addEventListener('click', () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+      }, { once: true });
+      return;
+    }
     const unlockButton = event.target.closest('[data-unlock-user]');
     if (unlockButton) {
       unlockButton.disabled = true;
@@ -688,9 +753,9 @@ export async function renderEmployees(page) {
             <div class="avatar profile-photo-preview" aria-hidden="true">U<img id="profile-photo-preview" alt="" hidden></div>
             <div class="profile-photo-controls">
               <label class="field">Employee picture
-                <input class="control" type="file" name="profile_photo" accept="image/jpeg,image/png,image/webp">
+                <input class="control" type="file" name="profile_photo" accept=".jpg,.jpeg,image/jpeg,.png,image/png,.webp,image/webp">
               </label>
-              <p class="muted">Optional. JPEG, PNG, or WebP; maximum 5 MB.</p>
+              <p class="muted">Optional. JPG/JPEG, PNG, or WebP; maximum 5 MB.</p>
             </div>
           </div>
           ${field('name', 'Full name', 'required placeholder="e.g. Samuel Okello"')}
@@ -757,7 +822,7 @@ export async function renderEmployees(page) {
           if (!(photo instanceof File)) return;
           const photoForm = new FormData();
           photoForm.append('file', photo, photo.name);
-          await apiRequest(`/users/${created.employeeid}/profile-photo`, {
+          await apiRequest(`/api/users/${created.employeeid}/profile-photo`, {
             method: 'PUT',
             body: photoForm,
           });

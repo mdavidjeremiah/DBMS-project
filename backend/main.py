@@ -20,7 +20,7 @@ import auth
 import erp_service
 from database import engine, get_db
 from audit import request_ip, write_audit_log
-from api_router import api_router
+from api_router import api_router, employee_profile_photo_url
 from bootstrap_admin import ensure_configured_admin
 
 app = FastAPI(
@@ -173,7 +173,7 @@ def user_profile(current_user: models.Employee, db: Session):
     return {
         "employeeid": current_user.employeeid, "name": current_user.name,
         "email": current_user.email,
-        "profile_photo_url": f"/api/users/{current_user.employeeid}/profile-photo" if current_user.profile_photo_filename else None,
+        "profile_photo_url": employee_profile_photo_url(current_user),
         "roletype": current_user.roletype.value,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
@@ -643,6 +643,7 @@ def get_employees(db: Session = Depends(get_db), current_user: models.Employee =
     return [{
         "employeeid": e.employeeid,
         "name": e.name,
+        "profile_photo_url": employee_profile_photo_url(e),
         "email": e.email,
         "nin": e.nin,
         "phone": e.phone,

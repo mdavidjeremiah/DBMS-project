@@ -92,7 +92,7 @@ alembic upgrade head
 
 Use Alembic for schema changes instead of manually altering tables.
 
-Employee profile photos are stored in `backend/uploads/profile-photos`. Apply migrations with `alembic upgrade head` before using employee photo uploads, and ensure the backend process can write to that directory.
+Employee profile photos are stored in `backend/uploads/profile-photos`. JPG/JPEG, PNG, and WebP uploads are supported up to 5 MB; uploads are served through the authenticated profile-photo API. Apply migrations with `alembic upgrade head` before using employee photo uploads, and ensure the backend process can write to that directory. Kiconco Flavia's provided WebP image is bundled as a protected default profile photo under `backend/default-profile-photos`.
 
 ## Security
 

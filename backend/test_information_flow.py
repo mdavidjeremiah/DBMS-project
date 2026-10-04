@@ -125,6 +125,34 @@ class InformationFlowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_kiconco_default_profile_photo_is_available_in_employee_profiles(self):
+        employee = models.Employee(
+            name="Kiconco Flavia",
+            nin="FLOW-EMPLOYEE-001",
+            email="kiconco@hardwareworld.local",
+            hashed_password=auth.get_password_hash("employee-password"),
+            roletype=models.RoleType.HR_STAFF,
+        )
+        self.db.add(employee)
+        self.db.commit()
+        main.app.dependency_overrides[auth.get_current_user] = lambda: employee
+
+        expected_url = f"/api/users/{employee.employeeid}/profile-photo"
+        profile = self.client.get("/api/users/me")
+        self.assertEqual(profile.status_code, 200, profile.text)
+        self.assertEqual(profile.json()["profile_photo_url"], expected_url)
+
+        directory = self.client.get("/employees")
+        self.assertEqual(directory.status_code, 200, directory.text)
+        employee_row = next(row for row in directory.json() if row["employeeid"] == employee.employeeid)
+        self.assertEqual(employee_row["profile_photo_url"], expected_url)
+
+        photo = self.client.get(expected_url)
+        expected_photo = Path(__file__).resolve().parent / "default-profile-photos" / "kiconco-flavia.webp"
+        self.assertEqual(photo.status_code, 200, photo.text)
+        self.assertEqual(photo.headers["content-type"], "image/webp")
+        self.assertEqual(photo.content, expected_photo.read_bytes())
+
     def test_employee_profile_photo_upload_is_validated_and_available_to_authenticated_users(self):
         png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
         main.app.dependency_overrides[auth.get_current_user] = lambda: self.admin
@@ -143,12 +171,31 @@ class InformationFlowTests(unittest.TestCase):
                 profile = self.client.get("/api/users/me")
                 self.assertEqual(profile.status_code, 200, profile.text)
                 self.assertEqual(profile.json()["profile_photo_url"], upload.json()["profile_photo_url"])
+                directory = self.client.get("/employees")
+                self.assertEqual(directory.status_code, 200, directory.text)
+                admin_entry = next(
+                    employee
+                    for employee in directory.json()
+                    if employee["employeeid"] == self.admin.employeeid
+                )
+                self.assertEqual(admin_entry["profile_photo_url"], upload.json()["profile_photo_url"])
 
                 download = self.client.get(upload.json()["profile_photo_url"])
                 self.assertEqual(download.status_code, 200, download.text)
                 self.assertEqual(download.content, png)
                 self.assertEqual(download.headers["content-type"], "image/png")
                 self.assertEqual(download.headers["cache-control"], "private, no-store")
+
+                jpeg = b"\xff\xd8\xff" + b"\x00" * 16
+                jpeg_upload = self.client.put(
+                    f"/api/users/{self.admin.employeeid}/profile-photo",
+                    files={"file": ("portrait.jpg", jpeg, "image/jpeg")},
+                )
+                self.assertEqual(jpeg_upload.status_code, 200, jpeg_upload.text)
+                jpeg_download = self.client.get(jpeg_upload.json()["profile_photo_url"])
+                self.assertEqual(jpeg_download.status_code, 200, jpeg_download.text)
+                self.assertEqual(jpeg_download.content, jpeg)
+                self.assertEqual(jpeg_download.headers["content-type"], "image/jpeg")
 
                 invalid = self.client.put(
                     f"/api/users/{self.admin.employeeid}/profile-photo",

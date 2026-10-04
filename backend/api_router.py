@@ -30,12 +30,30 @@ from audit import request_ip, write_audit_log
 
 api_router = APIRouter(prefix="/api")
 PROFILE_PHOTO_DIR = Path(__file__).resolve().parent / "uploads" / "profile-photos"
+DEFAULT_PROFILE_PHOTO_DIR = Path(__file__).resolve().parent / "default-profile-photos"
 MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024
+DEFAULT_PROFILE_PHOTO_BY_NAME = {
+    "kiconco flavia": "kiconco-flavia.webp",
+}
 PROFILE_PHOTO_FORMATS = {
     "image/jpeg": (".jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
     "image/png": (".png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
     "image/webp": (".webp", lambda data: len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"),
 }
+
+
+def employee_profile_photo_filename(employee: models.Employee) -> Optional[str]:
+    if employee.profile_photo_filename:
+        return Path(employee.profile_photo_filename).name
+    normalized_name = " ".join((employee.name or "").casefold().split())
+    return DEFAULT_PROFILE_PHOTO_BY_NAME.get(normalized_name)
+
+
+def employee_profile_photo_url(employee: models.Employee) -> Optional[str]:
+    if not employee_profile_photo_filename(employee):
+        return None
+    return f"/api/users/{employee.employeeid}/profile-photo"
+
 
 # --- Helper: Permission Enforcer ---
 def require_perm(perm_code: str):
@@ -119,7 +137,7 @@ def get_user_me(
         "employeeid": current_user.employeeid,
         "name": current_user.name,
         "email": current_user.email,
-        "profile_photo_url": f"/api/users/{current_user.employeeid}/profile-photo" if current_user.profile_photo_filename else None,
+        "profile_photo_url": employee_profile_photo_url(current_user),
         "roletype": current_user.roletype,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
@@ -192,11 +210,14 @@ def get_employee_profile_photo(
     db: Session = Depends(get_db),
 ):
     employee = db.get(models.Employee, employee_id)
-    if not employee or not employee.profile_photo_filename:
+    if not employee:
         raise HTTPException(status_code=404, detail="Profile photo not found.")
 
-    filename = Path(employee.profile_photo_filename).name
-    photo_path = PROFILE_PHOTO_DIR / filename
+    filename = employee_profile_photo_filename(employee)
+    if not filename:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    photo_directory = PROFILE_PHOTO_DIR if employee.profile_photo_filename else DEFAULT_PROFILE_PHOTO_DIR
+    photo_path = photo_directory / filename
     if not photo_path.is_file():
         raise HTTPException(status_code=404, detail="Profile photo not found.")
     media_type = next(
@@ -440,6 +461,7 @@ def get_api_employees(
         result.append({
             "employeeid": e.employeeid,
             "name": e.name,
+            "profile_photo_url": employee_profile_photo_url(e),
             "nin": e.nin if (can_view_salary or is_self) else "PROTECTED",
             "email": e.email,
             "phone": e.phone,
