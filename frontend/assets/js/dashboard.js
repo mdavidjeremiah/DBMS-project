@@ -13,9 +13,9 @@
  *   6. Administration  (Admin / System Administrator)
  */
 
-import { apiRequest } from './api.js';
-import { can, hasRole, getCurrentUser } from './permissions.js';
-import { renderAlertBanner, toast } from './notifications.js';
+import { apiRequest } from './api.js?v=20261004-4';
+import { can, hasRole, getCurrentUser } from './permissions.js?v=20261004-4';
+import { renderAlertBanner, toast } from './notifications.js?v=20261004-4';
 
 // ── Shared helpers ────────────────────────────────────────────────
 

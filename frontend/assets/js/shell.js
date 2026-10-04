@@ -5,9 +5,11 @@
  * the role-aware sidebar-config.js and the user's live permissions[].
  */
 
-import { signOut } from './auth.js';
-import { getSidebarItems } from './sidebar-config.js';
-import { refreshAlerts, updateNotificationBadge } from './notifications.js';
+import { openDialog } from './ui.js?v=20261004-4';
+import { apiRequest } from './api.js?v=20261004-4';
+import { signOut } from './auth.js?v=20261004-4';
+import { getSidebarItems } from './sidebar-config.js?v=20261004-4';
+import { refreshAlerts, updateNotificationBadge } from './notifications.js?v=20261004-4';
 
 const THEME_KEY = 'hw_theme';
 
@@ -61,7 +63,7 @@ export function initShell(user, pageHtml = '') {
         return `<div class="nav-label"><span>${item.section}</span></div>`;
       }
       const page = (item.href || '').split('#')[0];
-      const isActive = page === currentFile || (currentFile === '' && page === 'index.html');
+      const isActive = page === currentFile && (item.href.includes('#') ? item.href.split('#')[1] === window.location.hash.slice(1) : !window.location.hash);
       return `
         <a class="nav-link ${isActive ? 'active' : ''}" href="${item.href || '#'}">
           <i data-lucide="${item.icon}" class="w-5 h-5"></i>
@@ -177,11 +179,8 @@ export function initShell(user, pageHtml = '') {
   document.getElementById('theme-btn')?.addEventListener('click', () => {
     const next = currentTheme() === 'dark' ? 'light' : 'dark';
     applyTheme(next);
-    const icon = document.querySelector('#theme-btn i[data-lucide]');
-    if (icon) {
-      icon.setAttribute('data-lucide', next === 'dark' ? 'sun' : 'moon');
-      if (window.lucide) window.lucide.createIcons();
-    }
+    document.getElementById('theme-btn').innerHTML = `<i data-lucide="${next === 'dark' ? 'sun' : 'moon'}" class="w-5 h-5"></i>`;
+    if (window.lucide) window.lucide.createIcons();
   });
 
   document.getElementById('signout-btn')?.addEventListener('click', signOut);
@@ -189,6 +188,19 @@ export function initShell(user, pageHtml = '') {
   const sidebar = document.getElementById('hw-sidebar');
   document.getElementById('menu-btn')?.addEventListener('click', () => sidebar?.classList.toggle('open'));
   document.getElementById('close-sidebar')?.addEventListener('click', () => sidebar?.classList.remove('open'));
+
+  document.getElementById('global-search')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && event.target.value.trim()) window.location.assign(`products.html?search=${encodeURIComponent(event.target.value.trim())}`);
+  });
+  document.getElementById('hw-notif-btn')?.addEventListener('click', async () => {
+    try {
+      const alerts = await apiRequest('/api/approvals');
+      const dialog = openDialog({ title: 'Pending approvals', description: `${alerts.length} request(s) awaiting review`, bodyHtml: '<div data-alert-list></div>', submitLabel: 'Close', onSubmit: async () => {} });
+      const list = dialog.querySelector('[data-alert-list]');
+      for (const alert of alerts) { const row = document.createElement('p'); row.textContent = `${alert.description} ? ${alert.requester}`; list.append(row); }
+      if (!alerts.length) list.textContent = 'No pending approvals.';
+    } catch (error) { document.getElementById('hw-notif-btn').title = error.message; }
+  });
 
   // Date filter broadcasts to page via custom event
   document.getElementById('hw-date-filter')?.addEventListener('change', (e) => {

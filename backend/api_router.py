@@ -429,7 +429,7 @@ def get_api_sales(
             "payment_method": s.paymentmethod,
             "customer_name": customer.name if customer else "Walk-in Customer",
             "cashier_name": cashier.name if cashier else "Unknown Cashier",
-            "branch_name": s.branch.branchname if s.branch else "Unknown",
+            "branch_name": db.get(models.Branch, s.branchid).branchname if s.branchid and db.get(models.Branch, s.branchid) else "Unknown",
             "items": [
                 {
                     "itemid": i.itemid,
@@ -1014,11 +1014,12 @@ def get_pending_approvals(
         pos = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.status == models.POStatus.PENDING).all()
         for p in pos:
             supplier = db.get(models.Supplier, p.supplierid)
+            requester = db.get(models.Employee, p.employeeid)
             result.append({
                 "type": "PO",
                 "id": p.po_id,
                 "description": f"Purchase Order — {supplier.suppliername if supplier else 'Supplier'} — UGX {float(p.total_amount or 0):,.0f}",
-                "requester": employee_name(db, p.employeeid),
+                "requester": requester.name if requester else "Unknown",
                 "created_at": p.orderdate,
                 "status": p.status.value,
                 "total_amount": float(p.total_amount or 0),

@@ -20,9 +20,9 @@ export const SIDEBAR_CONFIG = {
     { label: 'Admin Overview', icon: 'layout-dashboard', href: 'index.html' },
 
     { section: 'Organisation Setup' },
-    { label: 'Company Branches', icon: 'building-2', href: 'branches.html', perm: 'admin:all' },
-    { label: 'Warehouses', icon: 'warehouse', href: 'warehouses.html', perm: 'admin:all' },
-    { label: 'Departments', icon: 'layers', href: 'departments.html', perm: 'admin:all' },
+    { label: 'Company Branches', icon: 'building-2', href: 'settings.html#branches', perm: 'admin:all' },
+    { label: 'Warehouses', icon: 'warehouse', href: 'settings.html#warehouses', perm: 'admin:all' },
+    { label: 'Departments', icon: 'layers', href: 'settings.html#departments', perm: 'admin:all' },
 
     { section: 'Users & Access' },
     { label: 'User Accounts', icon: 'users', href: 'employees.html', perm: 'admin:users' },

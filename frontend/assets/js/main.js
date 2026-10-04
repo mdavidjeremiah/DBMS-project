@@ -5,13 +5,13 @@
  * dispatches to the correct page renderer.
  */
 
-import { apiRequest } from './api.js';
-import { signOut } from './auth.js';
-import { initShell, getPageEl } from './shell.js';
-import { setCurrentUser } from './permissions.js';
-import { renderDashboard } from './dashboard.js';
-import { renderLogin, renderCrud, CRUD_PAGES, renderSales, renderEmployees, renderSettings, renderPayroll, renderLedger, renderPurchaseOrders, renderAuditLogs } from './pages.js';
-import { toast } from './notifications.js';
+import { apiRequest } from './api.js?v=20261004-4';
+import { signOut } from './auth.js?v=20261004-4';
+import { initShell, getPageEl } from './shell.js?v=20261004-4';
+import { setCurrentUser } from './permissions.js?v=20261004-4';
+import { renderDashboard } from './dashboard.js?v=20261004-4';
+import { renderLogin, renderCrud, CRUD_PAGES, renderSales, renderEmployees, renderSettings, renderPayroll, renderLedger, renderPurchaseOrders, renderAuditLogs } from './pages.js?v=20261004-4';
+import { toast } from './notifications.js?v=20261004-4';
 
 const pageName = document.body.dataset.page;
 
@@ -57,6 +57,10 @@ async function boot() {
 
   const page = getPageEl();
 
+  window.addEventListener('hashchange', () => {
+    if (pageName === 'settings') { initShell(user); renderSettings(getPageEl()).catch((error) => toast.error(error.message)); }
+  });
+
   // Listen to date-filter changes and re-render
   document.addEventListener('hw:datefilter', (e) => {
     if (pageName === 'dashboard' || pageName === 'index') {
@@ -64,10 +68,14 @@ async function boot() {
     }
   });
 
-  if (pageName === 'dashboard') await renderDashboard(page);
-  else if (pageName === 'sales') await renderSales(page, session.user);
+  if (pageName === 'dashboard' || pageName === 'index') await renderDashboard(page);
+  else if (pageName === 'sales') await renderSales(page, user);
   else if (pageName === 'employees') await renderEmployees(page);
   else if (pageName === 'settings') await renderSettings(page);
+  else if (pageName === 'payroll') await renderPayroll(page);
+  else if (pageName === 'ledger') await renderLedger(page);
+  else if (pageName === 'purchase-orders') await renderPurchaseOrders(page);
+  else if (pageName === 'audit-logs') await renderAuditLogs(page);
   else if (CRUD_PAGES[pageName]) await renderCrud(page, CRUD_PAGES[pageName]);
 }
 

@@ -5,8 +5,8 @@
  * Polls /api/approvals and /api/dashboard to surface live alerts.
  */
 
-import { apiRequest } from './api.js';
-import { can } from './permissions.js';
+import { apiRequest } from './api.js?v=20261004-4';
+import { can } from './permissions.js?v=20261004-4';
 
 // ─── Toast Notifications ───────────────────────────────────────────
 

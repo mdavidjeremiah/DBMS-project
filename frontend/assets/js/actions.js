@@ -1,4 +1,4 @@
-import { apiRequest } from './api.js';
+import { apiRequest } from './api.js?v=20261004-4';
 
 // Convert FormData to JSON object, handling numbers appropriately
 function formDataToJson(formData) {

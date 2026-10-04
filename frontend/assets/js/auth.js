@@ -1,4 +1,4 @@
-import { apiRequest } from './api.js';
+import { apiRequest } from './api.js?v=20261004-4';
 
 /**
  * Access Control Matrix
@@ -86,7 +86,7 @@ export async function requireAuth() {
   const pathToCheck = currentPath === '/' ? '/index.html' : currentPath;
   if (!hasAccess(user.roletype, pathToCheck) && pathToCheck !== '/index.html') {
     document.body.innerHTML = '';
-    import('./components.js').then(({ createAccessDenied }) => {
+    import('./components.js?v=20261004-4').then(({ createAccessDenied }) => {
       const container = document.createElement('div');
       container.className = 'app-shell';
       const main = document.createElement('main');
@@ -100,44 +100,7 @@ export async function requireAuth() {
   return user;
 }
 
-    if (!hasAccess(user.roletype, pathToCheck) && pathToCheck !== '/index.html') {
-      // We allow everyone to see the dashboard (index.html), but other pages are restricted.
-      // If they don't have access to this page, render the Access Denied component
-      document.body.innerHTML = '';
-      
-      // Dynamically import components to show access denied
-      import('./components.js').then(({ createAccessDenied }) => {
-        const container = document.createElement('div');
-        container.className = 'app-shell';
-        
-        const main = document.createElement('main');
-        main.style.padding = '2rem';
-        main.appendChild(createAccessDenied(user.roletype, user.department_name || 'Unknown'));
-        
-        container.appendChild(main);
-        document.body.appendChild(container);
-      });
-      
-      return null; // Prevent further rendering
-    }
 
-    // Record protected page visits without delaying the interface.
-    void apiRequest('/audit/page-view', {
-      method: 'POST',
-      body: JSON.stringify({ page: pathToCheck }),
-    }).catch(() => {});
-  
-    return user;
-  }
-  const page = document.body.dataset.page || 'dashboard';
-  const paths = { dashboard: '/', sales: '/sales.html', employees: '/employees.html', settings: '/settings.html', products: '/products.html', categories: '/categories.html', suppliers: '/suppliers.html', 'purchase-orders': '/purchase-orders.html', payroll: '/payroll.html', ledger: '/ledger.html' };
-  const accessPath = paths[page] || `/${page}.html`;
-  const permissionModule = { sales: 'sales', employees: 'hr', ledger: 'finance', payroll: 'payroll', products: 'inventory', categories: 'inventory', suppliers: 'procurement', 'purchase-orders': 'procurement' }[page];
-  const roleAllowed = hasAccess(user.roletype, accessPath);
-  const permissionAllowed = !permissionModule || (user.permissions || []).some((code) => code.startsWith(`${permissionModule}:`));
-  return { user, authorized: page === 'dashboard' || (roleAllowed && permissionAllowed) };
-}
-  
   /** Sign out the user and redirect to login */
   export async function signOut() {
     try {

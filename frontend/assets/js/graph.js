@@ -1,5 +1,5 @@
-import { money } from './ui.js';
-import { icons } from './icons.js';
+import { money } from './ui.js?v=20261004-4';
+import { icons } from './icons.js?v=20261004-4';
 
 export function renderGraph(container, initialData) {
   const data = initialData ?? [];

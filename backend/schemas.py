@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator, AliasChoices
 from typing import Optional, List, Literal
 from datetime import date, datetime
 from decimal import Decimal
@@ -143,15 +143,26 @@ class GRNCreate(BaseModel):
     items: List[GRNItemCreate]
 
 class SupplierInvoiceCreate(BaseModel):
+    supplier_id: Optional[int] = None
     invoice_number: str
     po_id: int
     grn_id: int
-    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    invoice_amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2, validation_alias=AliasChoices("invoice_amount", "amount"))
+    due_date: Optional[date] = None
+
+    @property
+    def amount(self):
+        return self.invoice_amount
 
 class SupplierPaymentCreate(BaseModel):
     invoice_id: int
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     payment_method: Literal["cash", "bank", "mobile_money"] = "bank"
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def normalize_payment_method(cls, value):
+        return value.lower() if isinstance(value, str) else value
 
 class PayrollCreate(BaseModel):
     employeeid: int
@@ -167,11 +178,20 @@ class SaleCreate(BaseModel):
     customerid: Optional[int] = None
     customername: Optional[str] = None
     customerphone: Optional[str] = None
+    warehouseid: Optional[int] = None
+    cashiersessionid: Optional[int] = None
+    payment_amount: Optional[Decimal] = None
+    idempotency_key: Optional[str] = None
     # Retained as optional for compatibility. The API derives these from JWT.
     employeeid: Optional[int] = None
     branchid: Optional[int] = None
-    payment_method: Literal["cash", "card", "mobile_money"] = "cash"
+    payment_method: Literal["cash", "card", "mobile_money", "credit"] = "cash"
     items: List[SaleItemCreate]
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def normalize_payment_method(cls, value):
+        return value.lower() if isinstance(value, str) else value
 
 class CashierSessionOpen(BaseModel):
     opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
@@ -492,7 +512,8 @@ class PurchaseOrderItemCreate(BaseModel):
 
 class PurchaseOrderCreate(BaseModel):
     supplierid: int
-    employeeid: int
+    employeeid: Optional[int] = None
+    requisition_id: Optional[int] = None
     branchid: Optional[int] = None
     status: POStatus = POStatus.PENDING
     items: Optional[List[PurchaseOrderItemCreate]] = None

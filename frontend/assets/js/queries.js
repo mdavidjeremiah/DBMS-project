@@ -1,4 +1,4 @@
-import { apiRequest } from './api.js';
+import { apiRequest } from './api.js?v=20261004-4';
 
 export async function getCategories() {
   return await apiRequest('/categories');

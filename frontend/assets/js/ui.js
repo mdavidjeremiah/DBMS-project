@@ -1,4 +1,4 @@
-import { icons } from './icons.js';
+import { icons } from './icons.js?v=20261004-4';
 
 export const money = (value) => `UGX ${Number(value || 0).toLocaleString()}`;
 
@@ -24,7 +24,7 @@ export function escapeHtml(value) {
 }
 
 export function renderTable(container, { columns, data, searchKey }) {
-  let search = '';
+  let search = new URLSearchParams(window.location.search).get('search') || '';
   let sortKey = null;
   let sortDir = 'asc';
   let page = 1;
@@ -127,7 +127,14 @@ export function openDialog({ title, description, bodyHtml, submitLabel, onSubmit
       </div>
     </div>
   `);
-  const close = () => backdrop.remove();
+  const previousFocus = document.activeElement;
+  const onKeydown = (event) => { if (event.key === 'Escape') close(); };
+  const close = () => {
+    document.removeEventListener('keydown', onKeydown);
+    backdrop.remove();
+    previousFocus?.focus();
+  };
+  document.addEventListener('keydown', onKeydown);
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) close();
   });
@@ -135,6 +142,9 @@ export function openDialog({ title, description, bodyHtml, submitLabel, onSubmit
   backdrop.querySelector('form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const errorEl = backdrop.querySelector('[data-error]');
+    const submitButton = backdrop.querySelector('button[type="submit"]');
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
     errorEl.classList.add('hidden');
     try {
       await onSubmit(new FormData(event.target));
@@ -142,9 +152,11 @@ export function openDialog({ title, description, bodyHtml, submitLabel, onSubmit
     } catch (error) {
       errorEl.textContent = error instanceof Error ? error.message : 'Request failed';
       errorEl.classList.remove('hidden');
+      submitButton.disabled = false;
     }
   });
   document.body.append(backdrop);
+  backdrop.querySelector('input, select, textarea, button')?.focus();
   return backdrop;
 }
 

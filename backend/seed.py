@@ -14,35 +14,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import SessionLocal, Base, engine
 import models
 import auth
-from erp_setup import ensure_erp_seed
 from database import engine, SessionLocal
 
 def seed_database():
     db = SessionLocal()
     try:
-        ensure_erp_seed(db)
-        # Check if already seeded
-        admin_exists = db.query(models.Employee).filter(models.Employee.email == "akena@hardwareworld.com").first()
-        if admin_exists:
-            print("Database already contains Admin account 'Akena'. Checking departments and records...")
-            db.commit()
-            return
-
-        print("Seeding Hardware World initial database records...")
-
-        # 1. Branches
-        b1 = models.Branch(
-            branchname="Main Industrial Branch",
-            location="Plot 42 Jinja Road, Kampala",
-            contactnumber="+256 414 500 100"
-        )
-        b2 = models.Branch(
-            branchname="Downtown Retail Store",
-            location="Shop 14 Luwum Street, Kampala",
-            contactnumber="+256 414 500 200"
-        )
-        db.add_all([b1, b2])
-        db.flush()
+        seed_baseline(db)
+    finally:
+        db.close()
 
 PERMISSIONS = [
     # Sales
@@ -158,6 +137,26 @@ CHART_OF_ACCOUNTS = [
     ("5010", "Cost of Goods Sold", "EXPENSE"),
     ("5020", "Salaries and Wages Expense", "EXPENSE"),
     ("5030", "Inventory Shrinkage Expense", "EXPENSE"),
+]
+
+ROLES = [
+    ("System Administrator", "Full system access and security administration"),
+    ("Owner / Executive", "Executive reporting and organization oversight"),
+    ("General Manager", "Overall branch operations and high-level approvals"),
+    ("Branch Manager", "Day-to-day branch management, inventory, and operations"),
+    ("Sales Manager", "Sales oversight, credit customer and discount approvals"),
+    ("Cashier", "Point of sale register operations and receipt issuance"),
+    ("Sales Clerk", "Assisting customers and counter sales"),
+    ("Storekeeper", "Warehouse receipt, transfers, and physical stocktakes"),
+    ("Warehouse Supervisor", "Warehouse logistics and stock movement management"),
+    ("Inventory Manager", "Inventory accuracy, stock adjustments, and reorder control"),
+    ("Procurement Officer", "Purchase orders, supplier management, and pricing"),
+    ("Procurement Manager", "Procurement approvals and supplier contract oversight"),
+    ("Finance Clerk", "Invoice entry, receipt vouchers, and payment records"),
+    ("Accountant", "Double-entry general ledger, bank reconciliations, and reporting"),
+    ("Finance Manager", "Financial approvals, payroll authorization, and cash management"),
+    ("HR Officer", "Employee records, attendance tracking, and leave management"),
+    ("HR Manager", "HR oversight, compensation, and payroll run preparation"),
 ]
 
 def seed_baseline(db):
@@ -567,8 +566,6 @@ def seed_baseline(db):
             ))
     db.commit()
 
-        ensure_erp_seed(db)
-        db.commit()
 
     print("Baseline seed successfully applied!")
 

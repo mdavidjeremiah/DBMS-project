@@ -1,5 +1,5 @@
-import { currentPageFile, signOut, visibleNav } from './auth.js';
-import { icons, NAV_ICONS } from './icons.js';
+import { currentPageFile, signOut, visibleNav } from './auth.js?v=20261004-4';
+import { icons, NAV_ICONS } from './icons.js?v=20261004-4';
 
 const THEME_KEY = 'hw_theme';
 

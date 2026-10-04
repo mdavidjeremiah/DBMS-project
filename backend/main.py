@@ -96,6 +96,10 @@ def audit_identity_from_request(request: Request):
 async def audit_protected_api_access(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
+    if os.getenv("APP_ENV", "development") == "development" and (
+        path == "/" or path.endswith(".html") or path.startswith("/assets/")
+    ):
+        response.headers["Cache-Control"] = "no-store"
     identity = audit_identity_from_request(request)
     if (
         identity
@@ -140,7 +144,7 @@ def require_role(current_user: models.Employee, *roles: models.RoleType):
         models.RoleType.HR_STAFF: {"HR Officer", "HR Manager"},
     }
     permitted_names = set().union(*(role_aliases.get(role, set()) for role in roles))
-    assigned_names = {role.name for role in current_user.erp_roles}
+    assigned_names = {assignment.role.role_name for assignment in current_user.user_roles}
     if current_user.roletype not in roles and not (assigned_names & permitted_names):
         raise HTTPException(status_code=403, detail="Not authorized for this operation")
 
@@ -152,9 +156,9 @@ def branch_name(db: Session, branchid: int | None):
     branch = db.query(models.Branch).filter(models.Branch.branchid == branchid).first() if branchid else None
     return branch.branchname if branch else "Unknown branch"
 
-def user_profile(current_user: models.Employee):
-    roles = [r.name for r in current_user.erp_roles] or [current_user.roletype.value]
-    permissions = sorted({p.code for role in current_user.erp_roles for p in role.permissions})
+def user_profile(current_user: models.Employee, db: Session):
+    roles = auth.get_user_roles(db, current_user)
+    permissions = sorted(auth.get_user_permissions(db, current_user))
     return {
         "employeeid": current_user.employeeid, "name": current_user.name,
         "email": current_user.email, "roletype": current_user.roletype.value,
@@ -174,13 +178,13 @@ def assign_primary_erp_role(db: Session, employee: models.Employee):
         models.RoleType.HR_STAFF: "HR Officer",
         models.RoleType.BRANCH_MANAGER: "Branch Manager",
     }[employee.roletype]
-    role = db.query(models.ERPRole).filter_by(name=role_name).first()
+    role = db.query(models.Role).filter_by(role_name=role_name).first()
     if not role:
-        role = models.ERPRole(name=role_name)
+        role = models.Role(role_name=role_name)
         db.add(role)
         db.flush()
-    if role not in employee.erp_roles:
-        employee.erp_roles.append(role)
+    if not any(assignment.role_id == role.role_id for assignment in employee.user_roles):
+        db.add(models.UserRole(user_id=employee.employeeid, role_id=role.role_id))
 
 @app.post("/register", response_model=schemas.UserResponse, tags=["authentication"])
 def register_user(
@@ -388,7 +392,7 @@ def record_page_view(
 
 @app.get("/users/me", tags=["authentication"])
 def read_users_me(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    return user_profile(current_user)
+    return user_profile(current_user, db)
 
 
 @app.get("/audit-logs", response_model=schemas.AuditLogPage)
@@ -576,12 +580,13 @@ def create_purchase_order(payload: schemas.PurchaseOrderCreate, db: Session = De
     supplier = db.query(models.Supplier).filter_by(supplierid=payload.supplierid).first()
     if not supplier:
         raise HTTPException(404, "Supplier not found")
-    order = models.PurchaseOrder(supplierid=payload.supplierid, employeeid=current_user.employeeid, branch_id=requisition.branch_id, requisition_id=requisition.id, status=models.POStatus.PENDING)
+    order = models.PurchaseOrder(supplierid=payload.supplierid, employeeid=current_user.employeeid, branch_id=requisition.branch_id, branchid=requisition.branch_id, requisition_id=requisition.id, status=models.POStatus.PENDING, total_amount=Decimal("0"))
     db.add(order); db.flush()
     for line in db.query(models.ERPPurchaseRequisitionItem).filter_by(requisition_id=requisition.id).all():
         db.add(models.ERPPurchaseOrderItem(po_id=order.po_id, itemid=line.itemid, quantity=line.quantity, unit_cost=line.estimated_unit_cost))
+        order.total_amount += line.quantity * line.estimated_unit_cost
     requisition.status = "CONVERTED"
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="PURCHASE_ORDER_CREATED", module="procurement", entity_type="purchase_order", entity_id=str(order.po_id), branch_id=requisition.branch_id))
+    db.add(models.AuditLog(user_id=current_user.employeeid, action="PURCHASE_ORDER_CREATED", module="procurement", entity_type="purchase_order", entity_id=order.po_id, branch_id=requisition.branch_id))
     db.commit(); db.refresh(order)
     return {"po_id": order.po_id, "status": order.status.value, "branch_id": order.branch_id}
 
@@ -751,6 +756,8 @@ def create_payroll(payload: schemas.PayrollCreate, db: Session = Depends(get_db)
 @app.get("/sales", tags=["operations"])
 @app.get("/api/v1/sales", tags=["operations"])
 def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(403, "Sales view permission required.")
     query = db.query(models.Sale).filter(models.Sale.status == "COMPLETED")
     if current_user.roletype == models.RoleType.CASHIER:
         query = query.filter(models.Sale.employeeid == current_user.employeeid)

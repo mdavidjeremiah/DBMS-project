@@ -5,7 +5,7 @@ export const API_URL = window.__HW_API_URL__ || '';
 export async function apiRequest(path, init = {}) {
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST' && !headers.has('Idempotency-Key')) {
+  if (['/sales', '/api/sales'].includes(path) && String(init.method || 'GET').toUpperCase() === 'POST' && !headers.has('Idempotency-Key')) {
     const keyName = 'hw_pending_sale_key';
     let key = sessionStorage.getItem(keyName);
     if (!key) {
@@ -14,16 +14,13 @@ export async function apiRequest(path, init = {}) {
     }
     headers.set('Idempotency-Key', key);
   }
-  const token = getToken();
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers, cache: 'no-store' });
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include', cache: 'no-store' });
   const body = await response.json().catch(() => null);
   if (response.status === 401 && !['/login', '/departments/public', '/health'].includes(path)) {
-    clearAccessToken();
     if (window.location.pathname !== '/login.html') window.location.replace('/login.html');
   }
   if (!response.ok) throw new Error(body?.detail ?? `API request failed (${response.status})`);
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST') sessionStorage.removeItem('hw_pending_sale_key');
+  if (['/sales', '/api/sales'].includes(path) && String(init.method || 'GET').toUpperCase() === 'POST') sessionStorage.removeItem('hw_pending_sale_key');
   return body;
 }
 

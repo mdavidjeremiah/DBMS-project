@@ -1,4 +1,4 @@
-import { handleSubmit } from './actions.js';
+import { handleSubmit } from './actions.js?v=20261004-4';
 
 export function createDataNotice(error, rlsBlocked) {
   if (error) {

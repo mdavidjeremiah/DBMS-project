@@ -1,13 +1,13 @@
-import { apiRequest, API_URL, loadList } from './api.js';
-import { field, money, openDialog, renderTable, selectField, showNotice } from './ui.js';
-import { icons } from './icons.js';
-import { buildGraphData, renderGraph } from './graph.js';
-import { getCurrentUser, can } from './permissions.js';
+import { apiRequest, API_URL, loadList } from './api.js?v=20261004-4';
+import { field, money, openDialog, renderTable, selectField, showNotice } from './ui.js?v=20261004-4';
+import { icons } from './icons.js?v=20261004-4';
+import { buildGraphData, renderGraph } from './graph.js?v=20261004-4';
+import { getCurrentUser, can } from './permissions.js?v=20261004-4';
 
 // Legacy renderDashboard is now delegated to dashboard.js
 // This stub satisfies any stale imports.
 export async function renderDashboard(page) {
-  const { renderDashboard: renderDept } = await import('./dashboard.js');
+  const { renderDashboard: renderDept } = await import('./dashboard.js?v=20261004-4');
   await renderDept(page);
 }
 
@@ -65,6 +65,8 @@ export async function renderLogin() {
     loginType = type;
     root.querySelectorAll('.switcher button').forEach((btn) => btn.classList.toggle('active', btn.dataset.type === type));
     root.querySelector('#dept-field').classList.toggle('hidden', type === 'admin');
+    form.department.required = type === 'staff';
+    form.department.disabled = type === 'admin';
     root.querySelector('#admin-note').classList.toggle('hidden', type !== 'admin');
     form.querySelector('button[type=submit]').textContent = `Sign in as ${type === 'admin' ? 'Administrator' : 'Staff Member'}`;
   };
@@ -251,16 +253,19 @@ export const CRUD_PAGES = {
 };
 
 export async function renderSales(page, user = window.__HW_USER__) {
-  const [sales, products] = await Promise.all([
-    loadList('/sales'),
-    loadList('/products'),
+  const [sales, products, branches, warehouses] = await Promise.all([
+    loadList('/api/sales'),
+    loadList('/api/products'),
+    loadList('/branches'),
+    loadList('/api/warehouses'),
   ]);
+  products.data = products.data.map((p) => ({ ...p, stock_qty: Number(p.available_stock ?? p.stock_qty ?? 0) }));
   const cashiers = [user].filter(Boolean);
-  const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
-  const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  const canSell = can('sales:pos');
+  const hasPOS = canSell;
   let cashierSession = null;
   if (canSell) {
-    try { cashierSession = await apiRequest('/cashier-sessions/current'); } catch { cashierSession = null; }
+    try { const result = await apiRequest('/api/cashier-sessions/current'); cashierSession = result.has_active_session ? result : null; } catch { cashierSession = null; }
   }
   page.innerHTML = `
     <header class="page-head card">
@@ -269,9 +274,9 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <h1>Sales & Retail Checkout</h1>
         <p class="muted">Completed sales with stock deduction, payment, and finance journals.</p>
       </div>
-      ${hasPOS ? `<button class="btn btn-primary" id="open-session-btn">Open Session</button>` : ''}
+
     </header>
-    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
+    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2>${selectField('branch_id', 'Branch', branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join(''), true)}${selectField('warehouse_id', 'Warehouse', `<option value="">Select warehouse</option>${warehouses.data.map((w) => `<option value="${w.warehouse_id}" data-branch="${w.branch_id}">${w.warehouse_name}</option>`).join('')}`, true)}<label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
     ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
     <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
       <section class="card">
@@ -317,7 +322,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
       const receiptData = JSON.parse(savedReceipt);
       const receipt = page.querySelector('#receipt');
       receipt.classList.remove('hidden');
-      receipt.textContent = `Sale #${receiptData.saleid} completed · Total ${money(receiptData.totalamount)} · COGS ${money(receiptData.cogs)} · Gross profit ${money(receiptData.gross_profit)}`;
+      receipt.textContent = `Sale #${receiptData.saleid} completed · Total ${money(receiptData.totalamount)} · COGS ${money(receiptData.cogs ?? receiptData.total_cogs)} · Gross profit ${money(receiptData.gross_profit ?? (Number(receiptData.totalamount) - Number(receiptData.total_cogs || 0)))}`;
       const printButton = document.createElement('button');
       printButton.className = 'btn btn-outline';
       printButton.textContent = 'Print receipt';
@@ -330,7 +335,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
     event.preventDefault();
     const form = event.currentTarget;
     try {
-      await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
+      await apiRequest('/api/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value, branch_id: Number(form.branch_id.value), warehouse_id: Number(form.warehouse_id.value) }) });
       window.location.reload();
     } catch (error) { showNotice(page.querySelector('#notice'), error.message); }
   });
@@ -418,15 +423,15 @@ export async function renderSales(page, user = window.__HW_USER__) {
     btn.disabled = true;
     btn.textContent = 'Processing…';
     try {
-      const receipt = await apiRequest('/sales', {
+      const receipt = await apiRequest('/api/sales', {
         method: 'POST',
-        headers: { 'Idempotency-Key': ikey },
-        body: JSON.stringify({
+                body: JSON.stringify({
           customername: form.customername.value || null,
           customerphone: form.customerphone.value || null,
           employeeid: user.employeeid,
-          branchid: Number(form.branchid.value),
-          payment_method: form.payment_method.value,
+          branchid: cashierSession.branch_id,
+          cashiersessionid: cashierSession.session_id,
+          payment_method: form.payment_method.value.toLowerCase(),
           items: lines.map((line) => ({ itemid: line.itemid, quantity: line.quantity })),
         }),
       });
@@ -605,41 +610,31 @@ export async function renderAuditLogs(page) {
     searchKey: 'action',
   });
 }
-  const employees = await loadList('/employees');
-  const colors = {
-    Cashier: 'background:#dbeafe;color:#1d4ed8',
-    'Procurement Officer': 'background:#fef3c7;color:#b45309',
-    Accountant: 'background:#ede9fe;color:#6d28d9',
-    'HR Staff': 'background:#dcfce7;color:#15803d',
-    'Branch Manager': 'background:#fee2e2;color:#b91c1c',
-    Admin: 'background:#e2e8f0;color:#334155',
+
+export async function renderSettings(page) {
+  if (!can('admin:users')) {
+    page.innerHTML = '<div class="card"><h1>Access denied</h1><p class="muted">Administrator access is required.</p></div>';
+    return;
+  }
+  const sections = {
+    branches: { endpoint: '/api/branches', kicker: 'Organisation', title: 'Company Branches', subtitle: 'Branches in the live database.', searchKey: 'branchname', columns: [{ header: 'ID', key: 'branchid' }, { header: 'Branch', key: 'branchname' }, { header: 'Location', key: 'location' }, { header: 'Contact', key: 'contactnumber' }], create: { trigger: 'Add Branch', title: 'Add branch', description: 'Create a branch for your organisation.', submit: 'Save branch', fields: field('branchname', 'Branch name', 'required') + field('location', 'Location', 'required') + field('contactnumber', 'Contact number'), submitFn: (form) => apiRequest('/branches', { method: 'POST', body: JSON.stringify(Object.fromEntries(form)) }) } },
+    warehouses: { endpoint: '/api/warehouses', kicker: 'Organisation', title: 'Warehouses', subtitle: 'Active warehouses and branch assignments.', searchKey: 'warehouse_name', columns: [{ header: 'ID', key: 'warehouse_id' }, { header: 'Warehouse', key: 'warehouse_name' }, { header: 'Branch ID', key: 'branch_id' }, { header: 'Location', key: 'location' }] },
+    departments: { endpoint: '/api/departments', kicker: 'Organisation', title: 'Departments', subtitle: 'Departments and branch assignments.', searchKey: 'departmentname', columns: [{ header: 'ID', key: 'departmentid' }, { header: 'Department', key: 'departmentname' }, { header: 'Branch', key: 'branch_name' }] },
+    roles: { endpoint: '/api/roles', kicker: 'Access control', title: 'Roles & Permissions', subtitle: 'Active roles available to your organisation.', searchKey: 'role_name', columns: [{ header: 'ID', key: 'role_id' }, { header: 'Role', key: 'role_name' }, { header: 'Description', key: 'description' }] },
   };
-  page.innerHTML = `
-    <header class="card">
-      <div class="kicker">${icons.settings} System Preferences</div>
-      <h1>Branch & Store Settings</h1>
-      <p class="muted">Configure branch operations, team members, and role-based access control.</p>
-    </header>
-    <div class="grid-2">
-      <div class="card">
-        <h2>Team Members</h2>
-        <div class="form-grid">
-          ${employees.data.length ? employees.data.map((m) => `<div class="team-row"><div><strong>${m.name}</strong><div class="muted">ID: ${m.employeeid}</div></div><span class="badge" style="${colors[m.roletype] || ''}">${m.roletype}</span></div>`).join('') : '<p class="muted">No team members yet</p>'}
-        </div>
-      </div>
-      <div class="card">
-        <h2>System Status</h2>
-        <p class="page-head"><span>Auth Configured</span><span class="badge">JWT enabled</span></p>
-        <p class="page-head"><span>RLS Policies</span><span class="badge">Enabled</span></p>
-        <p class="muted">FastAPI validates the signed-in employee role before allowing access to MySQL-backed operations.</p>
-      </div>
-    </div>
-    <div class="card form-grid two">
-      <h2 style="grid-column:1/-1">Store Identity & Tax Details</h2>
-      ${field('store-name', 'Store Legal Name', 'placeholder="Configured in your business profile"')}
-      ${field('tin', 'URA Tax Identification Number (TIN)', 'placeholder="Configured in your business profile"')}
-      ${field('branch', 'Active Workspace Branch', 'placeholder="Select a live branch"')}
-      ${field('currency', 'Operating Currency', 'value="UGX (Ugandan Shilling)" disabled')}
-    </div>
-  `;
+  const section = window.location.hash.slice(1) || 'roles';
+  await renderCrud(page, sections[section] || sections.roles);
+  const nav = document.createElement('nav');
+  nav.className = 'settings-tabs';
+  nav.innerHTML = Object.entries(sections).map(([key, value]) => `<a class="btn ${key === section ? 'btn-primary' : 'btn-outline'}" href="settings.html#${key}">${value.title}</a>`).join('');
+  page.prepend(nav);
+  if (section === 'roles') {
+    const result = await loadList('/api/permissions');
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.innerHTML = '<h2>Permission catalogue</h2><div data-permission-notice></div><div data-permission-table></div>';
+    page.append(card);
+    showNotice(card.querySelector('[data-permission-notice]'), result.error);
+    renderTable(card.querySelector('[data-permission-table]'), { columns: [{ header: 'Permission', key: 'code' }, { header: 'Module', key: 'module' }, { header: 'Action', key: 'action' }], data: result.data, searchKey: 'code' });
+  }
 }
