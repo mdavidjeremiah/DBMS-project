@@ -1065,6 +1065,21 @@ export async function renderSettings(page) {
     'Branch Manager': 'background:#fee2e2;color:#b91c1c',
     Admin: 'background:#e2e8f0;color:#334155',
   };
+  const teamMembers = employees.data.map((member) => {
+    const fullName = escapeHtml(member.name || 'Unknown employee');
+    const initials = escapeHtml((member.name || 'U').trim().charAt(0).toUpperCase());
+    const avatar = member.profile_photo_url
+      ? `<img src="${escapeHtml(member.profile_photo_url)}" alt="">`
+      : `<span aria-hidden="true">${initials}</span>`;
+    return `<article class="settings-team-member">
+      <div class="settings-team-avatar">${avatar}</div>
+      <div class="settings-team-member-info">
+        <strong title="${fullName}">${fullName}</strong>
+        <span>Employee #${member.employeeid}</span>
+      </div>
+      <span class="badge settings-team-role" style="${colors[member.roletype] || ''}">${escapeHtml(member.roletype || 'Unassigned')}</span>
+    </article>`;
+  }).join('');
   page.innerHTML = `
     <header class="card">
       <div class="kicker">${icons.settings} System Preferences</div>
@@ -1073,18 +1088,40 @@ export async function renderSettings(page) {
     </header>
     <div id="notice"></div>
     <div class="grid-2">
-      <div class="card">
-        <h2>Team Members</h2>
-        <div class="form-grid">
-          ${employees.error ? '<p class="muted">Team data is unavailable until the connection recovers.</p>' : employees.data.length ? employees.data.map((m) => `<div class="team-row"><div><strong>${m.name}</strong><div class="muted">ID: ${m.employeeid}</div></div><span class="badge" style="${colors[m.roletype] || ''}">${m.roletype}</span></div>`).join('') : '<p class="muted">No team members yet.</p>'}
+      <section class="card settings-panel settings-team-panel">
+        <div class="settings-panel-heading">
+          <div>
+            <h2>Team Members</h2>
+            <p class="muted">People with access to your workspace</p>
+          </div>
+          ${employees.error ? '' : `<span class="settings-member-count">${employees.data.length} ${employees.data.length === 1 ? 'member' : 'members'}</span>`}
         </div>
-      </div>
-      <div class="card">
-        <h2>System Status</h2>
-        <p class="page-head"><span>Auth Configured</span><span class="badge">JWT enabled</span></p>
-        <p class="page-head"><span>Authorization</span><span class="badge">API role checks</span></p>
-        <p class="muted">FastAPI validates the signed-in employee's role and permissions before allowing access to protected operations.</p>
-      </div>
+        <div class="settings-team-list">
+          ${employees.error ? '<p class="muted">Team data is unavailable until the connection recovers.</p>' : teamMembers || '<p class="muted">No team members yet.</p>'}
+        </div>
+      </section>
+      <section class="card settings-panel settings-status-panel">
+        <div class="settings-panel-heading">
+          <div>
+            <h2>System Status</h2>
+            <p class="muted">Security and access overview</p>
+          </div>
+          <span class="settings-status-indicator"><span></span>Access controls active</span>
+        </div>
+        <div class="settings-status-list">
+          <div class="settings-status-item">
+            <span class="settings-status-icon" aria-hidden="true">✓</span>
+            <div><strong>Authentication</strong><span>Secure sign-in is configured</span></div>
+            <span class="settings-status-value">JWT enabled</span>
+          </div>
+          <div class="settings-status-item">
+            <span class="settings-status-icon" aria-hidden="true">✓</span>
+            <div><strong>Authorization</strong><span>Role and permission checks are active</span></div>
+            <span class="settings-status-value">Protected</span>
+          </div>
+        </div>
+        <p class="settings-status-note">FastAPI verifies each signed-in employee's role and permissions before allowing access to protected operations.</p>
+      </section>
     </div>
     <div class="card">
       <h2>Business Profile</h2>

@@ -407,6 +407,21 @@ test('settings page kicker icons use the same restrained size as page-header ico
   assert.match(styles, /\.page-head \.kicker svg,\s*\.page > \.card > \.kicker svg,\s*\.context-bar \.kicker svg\s*\{\s*width:\s*1\.1em;\s*height:\s*1\.1em/s);
 });
 
+test('settings team directory and access status use responsive profile cards', async () => {
+  const styles = await readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8');
+  const pages = await readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8');
+  const settings = pages.slice(pages.indexOf('export async function renderSettings'), pages.indexOf('const ORGANIZATION_PAGES'));
+
+  assert.match(settings, /settings-member-count/);
+  assert.match(settings, /settings-team-member/);
+  assert.match(settings, /escapeHtml\(member\.name \|\| 'Unknown employee'\)/);
+  assert.match(settings, /member\.profile_photo_url/);
+  assert.match(settings, /settings-status-item/);
+  assert.match(styles, /\.settings-team-member\s*\{[^}]*grid-template-columns:\s*2\.65rem minmax\(0, 1fr\) auto/s);
+  assert.match(styles, /\.settings-team-list\s*\{[^}]*max-height:\s*27rem;[^}]*overflow-y:\s*auto/s);
+  assert.match(styles, /@media \(max-width: 480px\)\s*\{[^}]*\.settings-team-member/s);
+});
+
 test('organization sidebar destinations have authenticated pages and dashboard routing', async () => {
   const [main, pages, sidebar] = await Promise.all([
     readFile(new URL('./assets/js/main.js', sourceRoot), 'utf8'),
