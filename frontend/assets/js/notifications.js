@@ -101,7 +101,9 @@ export function confirm(title, message, confirmLabel = 'Confirm', variant = 'pri
       z-index:9998;display:flex;align-items:center;justify-content:center;
     `;
 
-    const btnColor = variant === 'danger' ? 'var(--destructive)' : 'var(--primary)';
+    const btnColor = variant === 'danger'
+      ? 'var(--button-destructive-background)'
+      : 'var(--button-primary-background)';
     overlay.innerHTML = `
       <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
                   padding:2rem;max-width:28rem;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
@@ -138,21 +140,21 @@ export function confirm(title, message, confirmLabel = 'Confirm', variant = 'pri
  * @param {string|null} actionHref
  */
 export function renderAlertBanner(container, message, level = 'info', actionLabel = null, actionHref = null) {
-  const bg = { critical: '#fef2f2', warning: '#fffbeb', info: '#eff6ff' }[level] || '#eff6ff';
-  const border = { critical: 'var(--destructive)', warning: 'var(--accent)', info: 'var(--steel)' }[level];
-  const icon = { critical: '🔴', warning: '🟡', info: '🔵' }[level];
+  const safeLevel = ['critical', 'warning', 'info'].includes(level) ? level : 'info';
+  const actionClass = { critical: 'btn-alert-critical', warning: 'btn-alert-warning', info: 'btn-alert-info' }[safeLevel];
+  const icon = { critical: '🔴', warning: '🟡', info: '🔵' }[safeLevel];
 
   const banner = document.createElement('div');
+  banner.className = `hw-alert-banner hw-alert--${safeLevel}`;
   banner.style.cssText = `
-    background:${bg};border:1px solid ${border};border-radius:var(--radius);
+    border-radius:var(--radius);
     padding:.875rem 1rem;display:flex;align-items:center;gap:.75rem;
     margin-bottom:.75rem;font-size:.875rem;
   `;
   banner.innerHTML = `
     <span>${icon}</span>
-    <span style="flex:1;color:var(--foreground);">${message}</span>
-    ${actionLabel && actionHref ? `<a id="alert-action" href="${actionHref}" style="background:${border};color:#fff;
-      border-radius:var(--radius);padding:.35rem .875rem;text-decoration:none;font-size:.8rem;font-weight:600;">
+    <span style="flex:1;">${message}</span>
+    ${actionLabel && actionHref ? `<a id="alert-action" href="${actionHref}" class="btn btn-sm ${actionClass}">
       ${actionLabel}</a>` : ''}
     <button type="button" aria-label="Dismiss alert"
       style="background:none;border:none;cursor:pointer;color:var(--muted-foreground);">&times;</button>

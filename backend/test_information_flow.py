@@ -563,12 +563,20 @@ class InformationFlowTests(unittest.TestCase):
             roletype=models.RoleType.CASHIER,
         )
         self.db.add(requester)
+        supplier = models.Supplier(suppliername="Approval Supplier")
+        self.db.add(supplier)
         self.db.flush()
         self.db.add(models.PurchaseRequisition(
             reference="REQ-FLOW-001",
             branch_id=branch.branchid,
             requested_by=requester.employeeid,
             status="PENDING",
+        ))
+        self.db.add(models.PurchaseOrder(
+            supplierid=supplier.supplierid,
+            employeeid=requester.employeeid,
+            branch_id=branch.branchid,
+            status=models.POStatus.PENDING,
         ))
         self.db.commit()
 
@@ -583,7 +591,10 @@ class InformationFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/approvals", headers=headers).json(), [])
         with patch(
             "api_router.auth.has_permission",
-            side_effect=lambda _db, _user, permission: permission == "procurement:approve_req",
+            side_effect=lambda _db, _user, permission: permission in {
+                "procurement:approve_req",
+                "procurement:po_approve",
+            },
         ):
             approvals = self.client.get("/api/approvals", headers=headers)
             decision = self.client.post(
@@ -593,9 +604,11 @@ class InformationFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(approvals.status_code, 200, approvals.text)
-        self.assertEqual(len(approvals.json()), 1)
-        self.assertEqual(approvals.json()[0]["type"], "REQUISITION")
-        self.assertEqual(approvals.json()[0]["description"], "Purchase Requisition — 0 item(s)")
+        self.assertEqual(len(approvals.json()), 2)
+        requisition_approval = next(item for item in approvals.json() if item["type"] == "REQUISITION")
+        purchase_order_approval = next(item for item in approvals.json() if item["type"] == "PO")
+        self.assertEqual(requisition_approval["description"], "Purchase Requisition — 0 item(s)")
+        self.assertEqual(purchase_order_approval["requester"], requester.name)
         self.assertEqual(decision.status_code, 200, decision.text)
         self.assertEqual(decision.json()["status"], "APPROVED")
 

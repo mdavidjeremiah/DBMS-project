@@ -20,6 +20,8 @@
   --primary: #ea580c;
   --primary-hover: #c2410c;
   --primary-foreground: #ffffff;
+  --button-primary-background: #c2410c;
+  --button-primary-hover: #9a3412;
 
   /* Secondary Deep Steel Blue / Navy */
   --secondary: #1e293b;
@@ -34,12 +36,22 @@
   --muted-foreground: #64748b;
 
   /* Steel Blue Accent */
-  --steel: #0284c7;
+  --steel: #0369a1;
   --steel-foreground: #ffffff;
 
   /* Danger / Alert */
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
+  --button-destructive-background: #b91c1c;
+  --alert-critical-background: #fef2f2;
+  --alert-critical-foreground: #7f1d1d;
+  --alert-critical-border: #fecaca;
+  --alert-warning-background: #fffbeb;
+  --alert-warning-foreground: #78350f;
+  --alert-warning-border: #fde68a;
+  --alert-info-background: #eff6ff;
+  --alert-info-foreground: #1e3a8a;
+  --alert-info-border: #bfdbfe;
 
   /* Borders & Focus Rings */
   --border: #e2e8f0;
@@ -62,6 +74,8 @@
   --primary: #f97316;
   --primary-hover: #ea580c;
   --primary-foreground: #ffffff;
+  --button-primary-background: #c2410c;
+  --button-primary-hover: #9a3412;
 
   --secondary: #334155;
   --secondary-foreground: #f8fafc;
@@ -77,6 +91,16 @@
 
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
+  --button-destructive-background: #b91c1c;
+  --alert-critical-background: #3f1d1d;
+  --alert-critical-foreground: #fecaca;
+  --alert-critical-border: #7f1d1d;
+  --alert-warning-background: #422006;
+  --alert-warning-foreground: #fde68a;
+  --alert-warning-border: #854d0e;
+  --alert-info-background: #172554;
+  --alert-info-foreground: #bfdbfe;
+  --alert-info-border: #1e40af;
 
   --border: #334155;
   --input: #334155;
@@ -1206,45 +1230,113 @@ input[type="checkbox"]:checked + label {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  min-height: 2.5rem;
   border-radius: 0.5rem;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   padding: 0.5rem 1rem;
-  transition: all 0.2s;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.62;
   cursor: not-allowed;
 }
 
 .btn-primary {
-  background-color: var(--primary);
+  background-color: var(--button-primary-background);
   color: var(--primary-foreground);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: var(--primary-hover);
+  background-color: var(--button-primary-hover);
+}
+
+.btn-secondary {
+  background-color: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  filter: brightness(1.12);
 }
 
 .btn-outline {
   border: 1px solid var(--border);
   background-color: transparent;
+  color: var(--foreground);
 }
 
 .btn-outline:hover:not(:disabled) {
   background-color: var(--muted);
+  border-color: var(--ring);
+  color: var(--foreground);
 }
 
 .btn-ghost {
   background-color: transparent;
+  color: var(--foreground);
 }
 
 .btn-ghost:hover:not(:disabled) {
   background-color: var(--muted);
+  color: var(--foreground);
+}
+
+.btn-alert-critical {
+  background-color: var(--button-destructive-background);
+  color: var(--destructive-foreground);
+}
+
+.btn-alert-warning {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.btn-alert-info {
+  background-color: var(--steel);
+  color: var(--steel-foreground);
+}
+
+.btn-alert-critical:hover:not(:disabled),
+.btn-alert-warning:hover:not(:disabled),
+.btn-alert-info:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.hw-alert-banner {
+  border: 1px solid var(--border);
+}
+
+.dashboard-alert--critical,
+.hw-alert--critical {
+  border-color: var(--alert-critical-border);
+  background: var(--alert-critical-background);
+  color: var(--alert-critical-foreground);
+}
+
+.dashboard-alert--warning,
+.hw-alert--warning {
+  border-color: var(--alert-warning-border);
+  background: var(--alert-warning-background);
+  color: var(--alert-warning-foreground);
+}
+
+.dashboard-alert--info,
+.hw-alert--info {
+  border-color: var(--alert-info-border);
+  background: var(--alert-info-background);
+  color: var(--alert-info-foreground);
 }
 
 .btn-sm {
+  min-height: 2.1rem;
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
 }

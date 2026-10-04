@@ -80,6 +80,11 @@ def employee_branch_ids(db: Session, employee: models.Employee) -> list[int]:
     return branch_ids
 
 
+def employee_name(db: Session, employee_id: Optional[int]) -> str:
+    employee = db.get(models.Employee, employee_id) if employee_id else None
+    return employee.name if employee else "Unknown employee"
+
+
 def scope_sales_query(
     db: Session,
     employee: models.Employee,

@@ -1,5 +1,6 @@
 import os
 import secrets
+import uuid
 from typing import Optional
 from datetime import timedelta, datetime
 from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header, Response

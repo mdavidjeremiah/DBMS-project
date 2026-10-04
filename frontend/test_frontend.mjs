@@ -12,6 +12,16 @@ function isoDate(daysAgo) {
   return date.toISOString().split('T')[0];
 }
 
+function contrastRatio(foreground, background) {
+  const luminance = (color) => {
+    const channels = color.slice(1).match(/.{2}/g).map((channel) => Number.parseInt(channel, 16) / 255);
+    const linear = channels.map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4));
+    return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
+  };
+  const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
 test('buildGraphData returns seven database-backed daily points', () => {
   const sales = [
     { saledate: `${isoDate(0)}T10:00:00`, totalamount: '125000' },
@@ -67,6 +77,7 @@ test('dashboard alert actions render destination links instead of event handlers
     const { renderAlertBanner } = await import(`./assets/js/notifications.js?test=${Date.now()}`);
     renderAlertBanner(container, 'Review pending approvals.', 'warning', 'Review', 'approvals.html');
     assert.match(container.element.innerHTML, /<a id="alert-action" href="approvals\.html"/);
+    assert.match(container.element.innerHTML, /class="btn btn-sm btn-alert-warning"/);
   } finally {
     if (originalDocument === undefined) delete globalThis.document;
     else globalThis.document = originalDocument;
@@ -420,6 +431,46 @@ test('settings team directory and access status use responsive profile cards', a
   assert.match(styles, /\.settings-team-member\s*\{[^}]*grid-template-columns:\s*2\.65rem minmax\(0, 1fr\) auto/s);
   assert.match(styles, /\.settings-team-list\s*\{[^}]*max-height:\s*27rem;[^}]*overflow-y:\s*auto/s);
   assert.match(styles, /@media \(max-width: 480px\)\s*\{[^}]*\.settings-team-member/s);
+});
+
+test('button variants declare readable theme colors and meet normal-text contrast in both themes', async () => {
+  const styles = await readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8');
+  const lightTheme = styles.match(/:root\s*\{([^}]*)\}/s)?.[1];
+  const darkTheme = styles.match(/\.dark\s*\{([^}]*)\}/s)?.[1];
+  assert.ok(lightTheme);
+  assert.ok(darkTheme);
+
+  const getToken = (theme, name) => theme.match(new RegExp(`--${name}:\\s*(#[\\da-fA-F]{6})`))?.[1];
+  const buttonPairs = [
+    ['button-primary-background', 'primary-foreground'],
+    ['secondary', 'secondary-foreground'],
+    ['button-destructive-background', 'destructive-foreground'],
+    ['accent', 'accent-foreground'],
+    ['steel', 'steel-foreground'],
+    ['alert-critical-background', 'alert-critical-foreground'],
+    ['alert-warning-background', 'alert-warning-foreground'],
+    ['alert-info-background', 'alert-info-foreground'],
+  ];
+  for (const [background, foreground] of buttonPairs) {
+    for (const [themeName, theme] of [['light', lightTheme], ['dark', darkTheme]]) {
+      const bg = getToken(theme, background);
+      const fg = getToken(theme, foreground);
+      assert.ok(bg && fg, `Missing ${background}/${foreground} tokens in ${themeName} theme`);
+      assert.ok(
+        contrastRatio(fg, bg) >= 4.5,
+        `${themeName} ${background} button text has insufficient contrast (${contrastRatio(fg, bg).toFixed(2)}:1)`,
+      );
+    }
+  }
+
+  assert.match(styles, /\.btn\s*\{[^}]*color:\s*var\(--foreground\)/s);
+  assert.match(styles, /\.btn-primary\s*\{[^}]*background-color:\s*var\(--button-primary-background\)/s);
+  assert.match(styles, /\.btn-primary\s*\{[^}]*color:\s*var\(--primary-foreground\)/s);
+  assert.match(styles, /\.btn-secondary\s*\{[^}]*color:\s*var\(--secondary-foreground\)/s);
+  assert.match(styles, /\.btn-outline\s*\{[^}]*color:\s*var\(--foreground\)/s);
+  assert.match(styles, /\.btn-ghost\s*\{[^}]*color:\s*var\(--foreground\)/s);
+  assert.match(styles, /\.btn-alert-warning\s*\{[^}]*color:\s*var\(--accent-foreground\)/s);
+  assert.match(styles, /\.hw-alert--critical\s*\{[^}]*color:\s*var\(--alert-critical-foreground\)/s);
 });
 
 test('organization sidebar destinations have authenticated pages and dashboard routing', async () => {

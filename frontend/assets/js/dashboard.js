@@ -57,15 +57,20 @@ function kpiCard(title, value, sub, trend = '', trendDir = 'up', link = '') {
 }
 
 function alertCard(message, level = 'warning', actionLabel = '', actionHref = '') {
-  const colors = { critical: 'var(--destructive)', warning: 'var(--accent)', info: 'var(--steel)' };
-  const bg = { critical: '#fef2f2', warning: '#fffbeb', info: '#eff6ff' };
+  const safeLevel = ['critical', 'warning', 'info'].includes(level) ? level : 'warning';
+  const colors = {
+    critical: 'var(--alert-critical-border)',
+    warning: 'var(--alert-warning-border)',
+    info: 'var(--alert-info-border)',
+  };
+  const actionClass = { critical: 'btn-alert-critical', warning: 'btn-alert-warning', info: 'btn-alert-info' }[safeLevel];
   const icons = { critical: '⛔', warning: '⚠️', info: 'ℹ️' };
   return `
-    <div class="card" style="border-left:4px solid ${colors[level]};background:${bg[level]}">
+    <div class="card dashboard-alert dashboard-alert--${safeLevel}" style="border-left:4px solid ${colors[safeLevel]}">
       <div style="display:flex;align-items:center;gap:.5rem;font-weight:600">
         ${icons[level]} ${message}
       </div>
-      ${actionLabel ? `<a href="${actionHref}" class="btn btn-sm" style="margin-top:.5rem;background:${colors[level]};color:#fff;">${actionLabel}</a>` : ''}
+      ${actionLabel ? `<a href="${actionHref}" class="btn btn-sm ${actionClass}" style="margin-top:.5rem;">${actionLabel}</a>` : ''}
     </div>`;
 }
 
