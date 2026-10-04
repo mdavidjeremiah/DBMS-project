@@ -11,6 +11,8 @@ from starlette.requests import Request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # Use isolated in-memory configuration; never touch the developer database.
 os.environ["DATABASE_URL"] = "sqlite://"
@@ -137,7 +139,11 @@ if grace:
 
 if akena:
     perms_a = auth.get_user_permissions(db, akena)
-    check("Admin has wildcard '*'", "*" in perms_a)
+    check(
+        "System Administrator is limited to administration",
+        "admin:users" in perms_a and "sales:view" not in perms_a and "*" not in perms_a,
+        f"perms={perms_a}",
+    )
 
 # ── Password Security ─────────────────────────────────────────────
 section("PASSWORD & AUTH SECURITY")
@@ -218,7 +224,7 @@ if product and warehouse and sarah:
             employeeid=brian.employeeid,
             branchid=brian.branchid or 1,
             warehouseid=warehouse.warehouse_id,
-            payment_method="CASH",
+            payment_method="cash",
             items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal("1"))],
         )
         try:
@@ -256,7 +262,7 @@ if product and warehouse and sarah:
         employeeid=sarah.employeeid,
         branchid=sarah.branchid or 1,
         warehouseid=warehouse.warehouse_id,
-        payment_method="CASH",
+        payment_method="cash",
         idempotency_key=ikey,
         items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal("2"))],
     )
@@ -339,7 +345,7 @@ if product and warehouse and supplier and john and grace and sarah:
     po = models.PurchaseOrder(
         supplierid=supplier.supplierid,
         employeeid=john.employeeid,
-        branchid=warehouse.branch_id,
+        branch_id=warehouse.branch_id,
         status=models.POStatus.APPROVED,
         total_amount=product.unitprice * Decimal("5"),
     )
@@ -484,7 +490,7 @@ if product and sarah and warehouse:
             employeeid=sarah.employeeid,
             branchid=sarah.branchid or 1,
             warehouseid=warehouse.warehouse_id,
-            payment_method="CASH",
+            payment_method="cash",
             items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal("1"))],
         )
         bad.items[0] = type('Obj', (), {'itemid': product.itemid, 'quantity': Decimal("-2")})()
@@ -505,7 +511,7 @@ if product and sarah and warehouse:
             employeeid=sarah.employeeid,
             branchid=sarah.branchid or 1,
             warehouseid=warehouse.warehouse_id,
-            payment_method="CASH",
+            payment_method="cash",
             items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal(str(oversell_qty)))],
         )
         erp_service.process_pos_sale(payload=over_payload, current_user=sarah, db=db, ip_address="127.0.0.1")
@@ -532,7 +538,7 @@ if product and sarah and warehouse:
             employeeid=sarah.employeeid,
             branchid=sarah.branchid or 1,
             warehouseid=warehouse.warehouse_id,
-            payment_method="CASH",
+            payment_method="cash",
             items=[schemas.SaleItemCreate(itemid=inactive_prod.itemid, quantity=Decimal("1"))],
         )
         erp_service.process_pos_sale(payload=inact_payload, current_user=sarah, db=db, ip_address="127.0.0.1")
@@ -558,7 +564,7 @@ if product and sarah and warehouse:
             employeeid=sarah.employeeid,
             branchid=sarah.branchid or 1,
             warehouseid=warehouse.warehouse_id,
-            payment_method="CASH",
+            payment_method="cash",
             idempotency_key=ikey3,
             items=[schemas.SaleItemCreate(itemid=product.itemid, quantity=Decimal("1"))],
         )

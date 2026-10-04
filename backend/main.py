@@ -984,6 +984,8 @@ def create_payroll(payload: schemas.PayrollCreate, db: Session = Depends(get_db)
 @app.get("/sales", tags=["operations"])
 @app.get("/api/v1/sales", tags=["operations"])
 def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
     query = db.query(models.Sale).filter(models.Sale.status == "COMPLETED")
     if current_user.roletype == models.RoleType.CASHIER:
         query = query.filter(models.Sale.employeeid == current_user.employeeid)

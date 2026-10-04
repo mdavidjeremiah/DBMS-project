@@ -172,6 +172,7 @@ class SaleCreate(BaseModel):
     customerid: Optional[int] = None
     customername: Optional[str] = None
     customerphone: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=120)
     # Retained as optional for compatibility. The API derives these from JWT.
     employeeid: Optional[int] = None
     branchid: Optional[int] = None

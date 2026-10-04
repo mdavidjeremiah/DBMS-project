@@ -531,14 +531,7 @@ def seed_baseline(db):
                 notes="Initial opening stock baseline"
             ))
 
-            # Reorder Rule
-            db.add(models.ReorderRule(
-                item_id=prod.itemid,
-                warehouse_id=main_wh.warehouse_id,
-                reorder_level=Decimal(str(p["reorderlevel"])),
-                critical_level=Decimal(str(max(1, p["reorderlevel"] // 2))),
-                target_stock_level=Decimal(str(p["stock"]))
-            ))
+            # Low-stock checks use the product's reorderlevel across warehouses.
     db.commit()
 
     ensure_erp_seed(db)

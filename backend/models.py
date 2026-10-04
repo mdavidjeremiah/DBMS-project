@@ -2,7 +2,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Date, ForeignKey, Enum, DateTime,
     Numeric, Text, Index, UniqueConstraint
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 import enum
 from database import Base
 from datetime import datetime
@@ -230,10 +230,14 @@ class Warehouse(Base):
     warehouse_name = Column(String(100), nullable=False)
     location = Column(String(150), nullable=True)
     is_active = Column(Boolean, default=True)
+    id = synonym("warehouse_id")
+    name = synonym("warehouse_name")
 
     branch = relationship("Branch", back_populates="warehouses")
     stock_locations = relationship("StockLocation", back_populates="warehouse")
     inventory_balances = relationship("InventoryBalance", back_populates="warehouse")
+
+ERPWarehouse = Warehouse
 
 class StockLocation(Base):
     __tablename__ = "stock_locations"
@@ -265,6 +269,34 @@ class Product(Base):
     category = relationship("Category", back_populates="products")
     supplies = relationship("Supply", back_populates="product")
     inventory_balances = relationship("InventoryBalance", back_populates="product")
+
+class ERPStockBalance(Base):
+    __tablename__ = "erp_stock_balances"
+    __table_args__ = (
+        UniqueConstraint("itemid", "warehouse_id", name="uq_erp_stock_item_warehouse"),
+        Index("ix_erp_stock_branch_item", "branch_id", "itemid"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.warehouse_id"), nullable=False, index=True)
+    quantity = Column(Numeric(15, 3), nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ERPInventoryMovement(Base):
+    __tablename__ = "erp_inventory_movements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branch.branchid"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.warehouse_id"), nullable=False, index=True)
+    movement_type = Column(String(32), nullable=False)
+    quantity = Column(Numeric(15, 3), nullable=False)
+    reference_type = Column(String(32), nullable=True)
+    reference_id = Column(Integer, nullable=True)
+    created_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 class Supplier(Base):
     __tablename__ = "supplier"

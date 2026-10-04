@@ -125,6 +125,22 @@ class InformationFlowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_legacy_sales_list_requires_sales_view_permission(self):
+        hr_employee = models.Employee(
+            name="HR Sales Access Check",
+            nin="FLOW-HR-SALES-001",
+            email="hr-sales-access@example.com",
+            hashed_password=auth.get_password_hash("hr-test-password"),
+            roletype=models.RoleType.HR_STAFF,
+        )
+        self.db.add(hr_employee)
+        self.db.commit()
+        main.app.dependency_overrides[auth.get_current_user] = lambda: hr_employee
+
+        response = self.client.get("/sales")
+
+        self.assertEqual(response.status_code, 403, response.text)
+
     def test_kiconco_default_profile_photo_is_available_in_employee_profiles(self):
         employee = models.Employee(
             name="Kiconco Flavia",
