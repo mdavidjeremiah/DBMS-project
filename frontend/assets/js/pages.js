@@ -579,6 +579,18 @@ function showEmployeePhotoUploadFailure(dialog, employeeName, errorMessage, retr
   fields.append(message, status);
 }
 
+function employeeRoleFields(role) {
+  const roleFields = {
+    Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-TERMINAL-02" required'),
+    'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),
+    Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
+    'HR Staff': field('hr_role', 'HR Designation', 'required'),
+    'Branch Manager': field('managementlevel', 'Management Level'),
+    'Owner / Executive': field('managementlevel', 'Management Level', 'value="Owner / Executive" readonly'),
+  };
+  return roleFields[role] || '<p class="muted role-field-hint">Select an assigned role to show the relevant role-specific fields.</p>';
+}
+
 export async function renderEmployees(page) {
   renderLoadingState(page, 'Loading employee directory…');
   const [employees, branches, departments] = await Promise.all([
@@ -666,6 +678,7 @@ export async function renderEmployees(page) {
     addButton.title = 'Employee data could not be loaded. Retry before adding an employee.';
   }
   addButton.addEventListener('click', () => {
+    const isSystemAdmin = getCurrentUser()?.roletype === 'Admin';
     const backdrop = openDialog({
       title: 'Provision New Employee & Assign Access',
       description: 'Create an employee sign-in account. A one-time temporary password will be generated and must be changed at first sign-in.',
@@ -683,11 +696,19 @@ export async function renderEmployees(page) {
           ${field('name', 'Full name', 'required placeholder="e.g. Samuel Okello"')}
           ${field('nin', 'National ID (NIN)', 'required')}
           ${field('email', 'Email Address', 'type="email" required')}
+          ${isSystemAdmin ? `<div class="employee-password-field">
+            <label class="field" for="initial-password">Temporary sign-in password
+              <input class="control" id="initial-password" name="password" type="text" autocomplete="new-password" readonly>
+            </label>
+            <button class="btn btn-primary btn-sm" id="generate-initial-password" type="button">Generate temporary password</button>
+            <p class="muted" id="initial-password-help" aria-live="polite">Generate one now, or leave blank and the system will generate it when the account is provisioned.</p>
+          </div>` : ''}
           ${field('phone', 'Phone Number', 'type="tel"')}
           ${field('datehired', 'Date hired', 'type="date"')}
           ${field('salary', 'Salary (UGX)', 'type="number" min="0" required')}
           <label class="field">Assigned Role (RBAC)
-            <select class="control" name="roletype" id="roletype">
+            <select class="control" name="roletype" id="roletype" required>
+              <option value="">Select an assigned role</option>
               <option value="Cashier">Cashier (Sales & POS)</option>
               <option value="Procurement Officer">Procurement Officer</option>
               <option value="Accountant">Accountant</option>
@@ -699,8 +720,8 @@ export async function renderEmployees(page) {
           ${selectField('branchid', 'Branch Assignment', `<option value="">Select branch</option>${branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join('')}`, true)}
           ${selectField('departmentid', 'Department (ABAC Policy)', `<option value="">Select assigned department</option>${departments.data.map((d) => `<option value="${d.departmentid}">${d.departmentname}</option>`).join('')}`, true)}
           ${selectField('supervisorid', 'Supervisor (optional)', `<option value="">No supervisor</option>${employees.data.map((e) => `<option value="${e.employeeid}">${e.name}</option>`).join('')}`)}
+          <div id="role-fields" class="employee-role-fields" aria-live="polite">${employeeRoleFields('')}</div>
         </div>
-        <div id="role-fields">${field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-TERMINAL-02" required')}</div>
       `,
       submitLabel: 'Provision Account',
       onSubmit: async (form) => {
@@ -773,6 +794,22 @@ export async function renderEmployees(page) {
     });
     const photoInput = backdrop.querySelector('input[name="profile_photo"]');
     const photoPreview = backdrop.querySelector('#profile-photo-preview');
+    const passwordInput = backdrop.querySelector('#initial-password');
+    const passwordHelp = backdrop.querySelector('#initial-password-help');
+    backdrop.querySelector('#generate-initial-password')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      passwordHelp.textContent = 'Generating a secure password…';
+      try {
+        const result = await apiRequest('/api/users/generate-temporary-password', { method: 'POST' });
+        passwordInput.value = result.temporary_password;
+        passwordHelp.textContent = 'Password generated by the server. It will be shown once after the account is provisioned and must be changed at first sign-in.';
+      } catch (error) {
+        passwordHelp.textContent = `Could not generate a secure password: ${error instanceof Error ? error.message : 'Password generation failed.'}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
     let previewUrl = null;
     photoInput.addEventListener('change', () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -792,16 +829,12 @@ export async function renderEmployees(page) {
     backdrop.querySelector('form').addEventListener('submit', () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     }, { once: true });
-    const roleFields = {
-      Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'required'),
-      'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),
-      Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
-      'HR Staff': field('hr_role', 'HR Designation', 'required'),
-      'Branch Manager': field('managementlevel', 'Management Level'),
-      'Owner / Executive': field('managementlevel', 'Management Level', 'value="Owner / Executive" readonly'),
-    };
-    backdrop.querySelector('#roletype')?.addEventListener('change', (event) => {
-      backdrop.querySelector('#role-fields').innerHTML = roleFields[event.target.value] || '';
+    const roleSelect = backdrop.querySelector('#roletype');
+    const roleFields = backdrop.querySelector('#role-fields');
+    if (!roleSelect || !roleFields) throw new Error('Employee role controls could not be initialized.');
+    roleSelect.addEventListener('change', () => {
+      roleFields.replaceChildren();
+      roleFields.insertAdjacentHTML('afterbegin', employeeRoleFields(roleSelect.value));
     });
   });
 }

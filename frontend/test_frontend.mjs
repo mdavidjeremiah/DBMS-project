@@ -162,6 +162,57 @@ test('employee photo provisioning and shared avatar locations use profile photo 
   assert.match(styles, /\.profile-photo-picker\s*\{/);
 });
 
+test('employee provisioning requires an explicit role and renders matching role-specific fields', async () => {
+  const pages = await readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8');
+  const roleFields = pages.slice(
+    pages.indexOf('function employeeRoleFields'),
+    pages.indexOf('export async function renderEmployees'),
+  );
+  const employeeForm = pages.slice(
+    pages.indexOf('export async function renderEmployees'),
+    pages.indexOf('// Stub exports for page renderers'),
+  );
+
+  assert.match(employeeForm, /name="roletype" id="roletype" required/);
+  assert.match(employeeForm, /<option value="">Select an assigned role<\/option>/);
+  assert.match(employeeForm, /<div id="role-fields" class="employee-role-fields" aria-live="polite">\$\{employeeRoleFields\(''\)\}<\/div>/);
+  assert.match(roleFields, /Cashier: field\('pos_terminalid', 'Assigned POS Terminal ID'/);
+  assert.match(roleFields, /'Procurement Officer': field\('approvallimit', 'Approval Limit \(UGX\)'/);
+  assert.match(roleFields, /Accountant: field\('certificationnumber'/);
+  assert.match(roleFields, /'HR Staff': field\('hr_role', 'HR Designation'/);
+  assert.match(roleFields, /'Branch Manager': field\('managementlevel'/);
+  assert.match(employeeForm, /roleSelect\.addEventListener\('change'/);
+  assert.match(employeeForm, /roleFields\.replaceChildren\(\)/);
+  assert.match(employeeForm, /employeeRoleFields\(roleSelect\.value\)/);
+  assert.match(employeeForm, /role controls could not be initialized/);
+  assert.doesNotMatch(employeeForm, /id="role-fields">\$\{field\('pos_terminalid'/);
+});
+
+test('admin requests a server-generated temporary password in the employee form', async () => {
+  const [pages, router, styles] = await Promise.all([
+    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('../backend/api_router.py', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/css/style.css', sourceRoot), 'utf8'),
+  ]);
+  const employeeForm = pages.slice(
+    pages.indexOf('export async function renderEmployees'),
+    pages.indexOf('// Stub exports for page renderers'),
+  );
+
+  assert.match(employeeForm, /const isSystemAdmin = getCurrentUser\(\)\?\.roletype === 'Admin'/);
+  assert.match(employeeForm, /\$\{isSystemAdmin \? `<div class="employee-password-field">/);
+  assert.match(employeeForm, /name="password" type="text" autocomplete="new-password" readonly/);
+  assert.match(employeeForm, /class="btn btn-primary btn-sm" id="generate-initial-password" type="button">Generate temporary password/);
+  assert.match(employeeForm, /password: form\.get\('password'\) \|\| null/);
+  assert.match(employeeForm, /apiRequest\('\/api\/users\/generate-temporary-password', \{ method: 'POST' \}\)/);
+  assert.match(employeeForm, /passwordInput\.value = result\.temporary_password/);
+  assert.match(router, /@api_router\.post\("\/users\/generate-temporary-password"/);
+  assert.match(router, /auth\.generate_temporary_password\(\)/);
+  assert.match(styles, /\.employee-password-field\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+  assert.match(styles, /\.dialog \.form-grid\.two > \.field\s*\{[^}]*align-self:\s*start/);
+  assert.match(styles, /\.employee-role-fields\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+});
+
 test('System Administrator uses the linked GitHub avatar unless an employee photo is set', async () => {
   const shell = await readFile(new URL('./assets/js/shell.js', sourceRoot), 'utf8');
   const avatar = await readFile(new URL('./assets/images/admin-profile.jpg', sourceRoot));

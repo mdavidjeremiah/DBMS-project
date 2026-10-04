@@ -82,6 +82,11 @@ class InformationFlowTests(unittest.TestCase):
         self.db.query(models.Warehouse).delete()
         self.db.query(models.PurchaseRequisition).delete()
         self.db.query(models.ChartOfAccount).delete()
+        self.db.query(models.Cashier).delete()
+        self.db.query(models.ProcurementOfficer).delete()
+        self.db.query(models.Accountant).delete()
+        self.db.query(models.HRStaff).delete()
+        self.db.query(models.BranchManager).delete()
         self.db.query(models.Employee).delete()
         self.db.query(models.Department).delete()
         self.db.query(models.Branch).delete()
@@ -150,6 +155,70 @@ class InformationFlowTests(unittest.TestCase):
                     files={"file": ("portrait.svg", b"<svg></svg>", "image/svg+xml")},
                 )
                 self.assertEqual(invalid.status_code, 415, invalid.text)
+
+    def test_temporary_password_generation_requires_admin_permission_and_is_ephemeral(self):
+        main.app.dependency_overrides[auth.get_current_user] = lambda: self.admin
+        with patch("api_router.auth.generate_temporary_password", return_value="SecureServerGenerated_123"):
+            generated = self.client.post("/api/users/generate-temporary-password")
+
+        self.assertEqual(generated.status_code, 200, generated.text)
+        self.assertEqual(generated.json(), {"temporary_password": "SecureServerGenerated_123"})
+        self.assertEqual(self.db.query(models.PasswordEvent).count(), 0)
+
+        branch = models.Branch(branchname="Password Generation Branch", location="Test")
+        self.db.add(branch)
+        self.db.flush()
+        department = models.Department(
+            departmentname="Finance",
+            branchid=branch.branchid,
+        )
+        self.db.add(department)
+        self.db.commit()
+        created = self.client.post(
+            "/employees",
+            json={
+                "name": "Generated Password Employee",
+                "nin": "FLOW-PASSWORD-GENERATED",
+                "email": "generated.password@example.com",
+                "password": generated.json()["temporary_password"],
+                "salary": 1000,
+                "departmentid": department.departmentid,
+                "branchid": branch.branchid,
+                "roletype": "Accountant",
+            },
+            headers={"Origin": "http://127.0.0.1:8000"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        created_employee = self.db.get(models.Employee, created.json()["employeeid"])
+        self.assertIsNotNone(created_employee)
+        self.assertNotEqual(created_employee.hashed_password, generated.json()["temporary_password"])
+        self.assertTrue(auth.verify_password(
+            generated.json()["temporary_password"],
+            created_employee.hashed_password,
+        ))
+        self.assertTrue(created_employee.must_change_password)
+        self.assertIsNotNone(created_employee.temporary_password_expires_at)
+        self.assertNotIn(
+            generated.json()["temporary_password"],
+            " ".join(
+                audit.details or ""
+                for audit in self.db.query(models.AuditLog).all()
+            ),
+        )
+
+        employee = models.Employee(
+            name="Unauthorized Generator",
+            nin="FLOW-PASSWORD-GENERATOR",
+            email="unauthorized.generator@example.com",
+            hashed_password=auth.get_password_hash("generator-password-2026"),
+            roletype=models.RoleType.CASHIER,
+        )
+        self.db.add(employee)
+        self.db.commit()
+        main.app.dependency_overrides[auth.get_current_user] = lambda: employee
+        with patch("api_router.auth.has_permission", return_value=False):
+            denied = self.client.post("/api/users/generate-temporary-password")
+        self.assertEqual(denied.status_code, 403, denied.text)
 
     def test_sales_endpoints_enforce_assigned_branch_and_cashier_ownership(self):
         branch_a = models.Branch(branchname="Sales Branch A", location="Test")

@@ -132,6 +132,16 @@ def get_user_me(
     }
 
 
+@api_router.post("/users/generate-temporary-password", tags=["Administration"])
+def generate_employee_temporary_password(
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.has_permission(db, current_user, "admin:users"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    return {"temporary_password": auth.generate_temporary_password()}
+
+
 @api_router.put("/users/{employee_id}/profile-photo", tags=["Authentication"])
 def upload_employee_profile_photo(
     employee_id: int,

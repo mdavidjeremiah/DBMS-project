@@ -1423,6 +1423,41 @@ input[data-search]::placeholder,
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.dialog .form-grid.two > .field {
+  align-self: start;
+}
+
+.employee-password-field {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.employee-password-field .field {
+  min-width: 0;
+}
+
+.employee-password-field .control {
+  min-width: 0;
+}
+
+.employee-password-field .muted {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+}
+
+.employee-role-fields {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.employee-role-fields .field {
+  max-width: calc((100% - 0.85rem) / 2);
+}
+
 .profile-photo-picker {
   grid-column: 1 / -1;
   display: flex;
@@ -1517,6 +1552,14 @@ dialog {
 
   .dialog .form-grid.two {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .employee-password-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .employee-role-fields .field {
+    max-width: none;
   }
 }
 
