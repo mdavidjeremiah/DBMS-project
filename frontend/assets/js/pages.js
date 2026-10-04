@@ -1,5 +1,5 @@
 import { apiRequest, API_URL, loadList } from './api.js';
-import { field, money, openDialog, renderTable, selectField, showNotice } from './ui.js';
+import { field, money, openDialog, renderLoadingState, renderTable, selectField, showNotice } from './ui.js';
 import { icons } from './icons.js';
 import { buildGraphData, renderGraph } from './graph.js';
 import { getCurrentUser, can } from './permissions.js';
@@ -23,52 +23,36 @@ export async function renderLogin() {
     departments = [];
   }
 
-  const staffDepts = departments.filter((d) => d.departmentname !== 'Administration');
+  const staffDepts = departments.filter((d) => d.departmentname.trim().toLowerCase() !== 'administration');
   const root = document.getElementById('app');
   root.innerHTML = `
     <div class="auth-card">
       <div class="center">
         <div class="brand-mark" style="margin:0 auto 0.75rem">${icons.shield}</div>
         <h1>Hardware World</h1>
-        <p class="kicker">Enterprise DBMS Portal</p>
-        <p class="muted">Role-Based & Attribute-Based Access Control (RBAC & ABAC)</p>
-      </div>
-      <div class="switcher">
-        <button type="button" class="active" data-type="staff">${icons.usercheck} Staff Member</button>
-        <button type="button" data-type="admin">${icons.shield} Administrator</button>
+        <p class="kicker">Staff Member</p>
+        <p class="muted">Sign in with your work account and assigned department.</p>
       </div>
       <div id="auth-error" class="notice error hidden"></div>
       <form id="login-form" class="form-grid">
-        <label class="field">Full Name or Email
-          <input class="control" name="username" required placeholder="Enter your name or email">
+        <label class="field">Name or email
+          <input class="control" name="username" autocomplete="username" required placeholder="Enter your name or email">
         </label>
-        <div id="dept-field">
-          <label class="field">Assigned Department (ABAC Verification)
-            <select class="control" name="department" required>
-              ${staffDepts.map((d) => `<option value="${d.departmentname}">${d.departmentname}</option>`).join('')}
-            </select>
-          </label>
-        </div>
-        <div id="admin-note" class="hidden card"><strong>System Administrator Scope</strong><p class="muted">Administrator credentials have unrestricted oversight across all store departments.</p></div>
+        <label class="field">Department
+          <select class="control" name="department">
+            <option value="" selected>Select your department</option>
+            ${staffDepts.map((d) => `<option value="${d.departmentname}">${d.departmentname}</option>`).join('')}
+          </select>
+        </label>
         <label class="field">Password
-          <input class="control" name="password" type="password" required placeholder="Enter account password">
+          <input class="control" name="password" type="password" autocomplete="current-password" required placeholder="Enter your assigned password">
         </label>
-        <button class="btn btn-primary" type="submit">Sign in as Staff Member</button>
+        <button class="btn btn-primary" type="submit">Sign in</button>
       </form>
-      <p class="muted center">User accounts are created exclusively by the System Administrator.<br><a href="signup.html">Inquire about account provisioning →</a></p>
     </div>
   `;
 
-  let loginType = 'staff';
   const form = root.querySelector('#login-form');
-  const setType = (type) => {
-    loginType = type;
-    root.querySelectorAll('.switcher button').forEach((btn) => btn.classList.toggle('active', btn.dataset.type === type));
-    root.querySelector('#dept-field').classList.toggle('hidden', type === 'admin');
-    root.querySelector('#admin-note').classList.toggle('hidden', type !== 'admin');
-    form.querySelector('button[type=submit]').textContent = `Sign in as ${type === 'admin' ? 'Administrator' : 'Staff Member'}`;
-  };
-  root.querySelectorAll('.switcher button').forEach((btn) => btn.addEventListener('click', () => setType(btn.dataset.type)));
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -77,11 +61,11 @@ export async function renderLogin() {
     try {
       const payload = {
         username: form.username.value.trim(),
-        password: form.password.value.trim(),
-        department: loginType === 'staff' ? form.department.value : 'Administration',
-        login_type: loginType,
+        password: form.password.value,
+        department: form.department.value || null,
+        login_type: 'staff',
       };
-      await fetch(`${API_URL}/login?cookie_only=true`, {
+      const loginResult = await fetch(`${API_URL}/login?cookie_only=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -91,7 +75,7 @@ export async function renderLogin() {
         if (!res.ok) throw new Error(body.detail ?? 'Authentication failed.');
         return body;
       });
-      window.location.replace('index.html');
+      window.location.replace(loginResult.requires_password_change ? 'change-password.html' : 'index.html');
     } catch (error) {
       errorEl.textContent = error instanceof Error ? error.message : 'Unable to sign in.';
       errorEl.classList.remove('hidden');
@@ -99,7 +83,54 @@ export async function renderLogin() {
   });
 }
 
+export function renderPasswordChange() {
+  const root = document.getElementById('app');
+  root.innerHTML = `
+    <div class="auth-card">
+      <div class="center">
+        <div class="brand-mark" style="margin:0 auto 0.75rem">${icons.shield}</div>
+        <h1>Set your personal password</h1>
+        <p class="muted">Your administrator issued a temporary password. Change it before accessing your workspace.</p>
+      </div>
+      <div id="password-error" class="notice error hidden" role="alert"></div>
+      <form id="password-change-form" class="form-grid">
+        ${field('current_password', 'Temporary password', 'type="password" autocomplete="current-password" required')}
+        ${field('new_password', 'New password', 'type="password" autocomplete="new-password" minlength="12" maxlength="72" required')}
+        ${field('confirm_password', 'Confirm new password', 'type="password" autocomplete="new-password" minlength="12" maxlength="72" required')}
+        <p class="muted">Use at least 12 characters. A memorable passphrase is fine.</p>
+        <button class="btn btn-primary" type="submit">Save password and continue</button>
+      </form>
+    </div>
+  `;
+
+  root.querySelector('#password-change-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = root.querySelector('#password-error');
+    error.classList.add('hidden');
+    const currentPassword = form.elements.namedItem('current_password').value;
+    const newPassword = form.elements.namedItem('new_password').value;
+    const confirmation = form.elements.namedItem('confirm_password').value;
+    if (newPassword !== confirmation) {
+      error.textContent = 'The new passwords do not match.';
+      error.classList.remove('hidden');
+      return;
+    }
+    try {
+      await apiRequest('/api/auth/initial-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      window.location.replace('index.html');
+    } catch (reason) {
+      error.textContent = reason instanceof Error ? reason.message : 'Unable to change your password.';
+      error.classList.remove('hidden');
+    }
+  });
+}
+
 export async function renderCrud(page, config) {
+  renderLoadingState(page, `Loading ${config.title.toLowerCase()}…`);
   const result = await loadList(config.endpoint);
   page.innerHTML = `
     <header class="page-head card">
@@ -113,8 +144,10 @@ export async function renderCrud(page, config) {
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), result.error);
-  renderTable(page.querySelector('#table'), { columns: config.columns, data: result.data, searchKey: config.searchKey });
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
+  if (!result.error) {
+    renderTable(page.querySelector('#table'), { columns: config.columns, data: result.data, searchKey: config.searchKey });
+  }
   page.querySelector('#add-btn')?.addEventListener('click', () => {
     openDialog({
       title: config.create.title,
@@ -251,6 +284,7 @@ export const CRUD_PAGES = {
 };
 
 export async function renderSales(page, user = window.__HW_USER__) {
+  renderLoadingState(page, 'Loading sales and products…');
   const [sales, products] = await Promise.all([
     loadList('/sales'),
     loadList('/products'),
@@ -258,9 +292,15 @@ export async function renderSales(page, user = window.__HW_USER__) {
   const cashiers = [user].filter(Boolean);
   const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
   const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  const hasPOS = canSell;
   let cashierSession = null;
+  let cashierSessionError = null;
   if (canSell) {
-    try { cashierSession = await apiRequest('/cashier-sessions/current'); } catch { cashierSession = null; }
+    try {
+      cashierSession = await apiRequest('/cashier-sessions/current');
+    } catch (error) {
+      cashierSessionError = error instanceof Error ? error.message : 'Unable to check the cashier session.';
+    }
   }
   page.innerHTML = `
     <header class="page-head card">
@@ -269,9 +309,9 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <h1>Sales & Retail Checkout</h1>
         <p class="muted">Completed sales with stock deduction, payment, and finance journals.</p>
       </div>
-      ${hasPOS ? `<button class="btn btn-primary" id="open-session-btn">Open Session</button>` : ''}
     </header>
-    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
+    <div id="session-notice"></div>
+    ${canSell && !cashierSession && !cashierSessionError ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
     ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
     <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
       <section class="card">
@@ -301,7 +341,6 @@ export async function renderSales(page, user = window.__HW_USER__) {
         </label>
         <input class="control" name="customername" placeholder="Customer name">
         <input class="control" name="customerphone" placeholder="Phone number">
-        <label class="field">Payment method<select class="control" name="payment_method"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
         <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
         <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete Sale</button>
       </aside>
@@ -310,7 +349,8 @@ export async function renderSales(page, user = window.__HW_USER__) {
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), sales.error || products.error);
+  showNotice(page.querySelector('#notice'), sales.error || products.error, { onRetry: () => window.location.reload() });
+  showNotice(page.querySelector('#session-notice'), cashierSessionError, { onRetry: () => window.location.reload() });
   const savedReceipt = sessionStorage.getItem('hw_last_receipt');
   if (savedReceipt) {
     try {
@@ -329,12 +369,19 @@ export async function renderSales(page, user = window.__HW_USER__) {
   page.querySelector('#open-cashier-session')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = 'Opening session…';
     try {
       await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
       window.location.reload();
-    } catch (error) { showNotice(page.querySelector('#notice'), error.message); }
+    } catch (error) {
+      showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to open cashier session.');
+      submitButton.disabled = false;
+      submitButton.textContent = 'Open session';
+    }
   });
-  renderTable(page.querySelector('#table'), {
+  if (!sales.error) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Receipt #', key: 'saleid', sortable: true },
       { header: 'Date', key: 'saledate', sortable: true },
@@ -372,8 +419,6 @@ export async function renderSales(page, user = window.__HW_USER__) {
     const sel = page.querySelector('#product-select');
     const itemid = Number(sel.value);
     if (!itemid) return;
-    const opt = sel.querySelector(`option[value="${itemid}"]`);
-    const stock = parseFloat(opt?.dataset.stock || 0);
     const existing = lines.find((l) => l.itemid === itemid);
     const selectedProduct = products.data.find((p) => p.itemid === itemid);
     if (existing) existing.quantity = Math.min(Number(selectedProduct.stock_qty), existing.quantity + 1);
@@ -440,7 +485,45 @@ export async function renderSales(page, user = window.__HW_USER__) {
   });
 }
 
+function showTemporaryPasswordResult(dialog, account) {
+  dialog.querySelector('p.muted').textContent = 'Copy this temporary password and share it securely. It will not be shown again.';
+  const fields = dialog.querySelector('.form-grid');
+  fields.replaceChildren();
+  const message = document.createElement('p');
+  message.textContent = `${account.name || 'The employee'} must change this password at first sign-in. It expires ${new Date(account.temporary_password_expires_at).toLocaleString()}.`;
+  const passwordInput = document.createElement('input');
+  passwordInput.className = 'control';
+  passwordInput.readOnly = true;
+  passwordInput.value = account.temporary_password;
+  passwordInput.setAttribute('aria-label', 'One-time temporary password');
+  const status = document.createElement('p');
+  status.className = 'muted';
+  const actions = dialog.querySelector('.dialog-actions');
+  const submit = actions.querySelector('button[type="submit"]');
+  submit.hidden = true;
+  const done = actions.querySelector('[data-cancel]');
+  done.textContent = 'Done';
+  done.addEventListener('click', () => window.location.reload());
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'btn btn-outline';
+  copy.textContent = 'Copy password';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(account.temporary_password);
+      status.textContent = 'Temporary password copied.';
+    } catch {
+      passwordInput.focus();
+      passwordInput.select();
+      status.textContent = 'Clipboard access was unavailable. The password is selected; copy it now.';
+    }
+  });
+  actions.prepend(copy);
+  fields.append(message, passwordInput, status);
+}
+
 export async function renderEmployees(page) {
+  renderLoadingState(page, 'Loading employee directory…');
   const [employees, branches, departments] = await Promise.all([
     loadList('/employees'),
     loadList('/branches'),
@@ -458,30 +541,82 @@ export async function renderEmployees(page) {
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), employees.error || branches.error || departments.error);
-  renderTable(page.querySelector('#table'), {
+  const loadError = employees.error || branches.error || departments.error;
+  showNotice(page.querySelector('#notice'), loadError, { onRetry: () => window.location.reload() });
+  if (!loadError) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Employee ID', key: 'employeeid', sortable: true },
       { header: 'Name', key: 'name', sortable: true },
+      { header: 'Email', key: 'email' },
       { header: 'Role', key: 'roletype', sortable: true },
       { header: 'Department', key: 'department_name' },
+      { header: 'Account Status', key: 'account_status' },
       { header: 'Branch', key: 'branch_name' },
       { header: 'Phone', key: 'phone' },
       { header: 'Date Hired', key: 'datehired', sortable: true },
+      {
+        header: 'Account Actions',
+        key: 'employeeid',
+        cell: (employee) => can('admin:users') && employee.employeeid !== getCurrentUser()?.employeeid
+          ? `<div class="flex gap-2"><button class="btn btn-outline btn-sm" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}</div>`
+          : '',
+      },
     ],
     data: employees.data,
     searchKey: 'name',
   });
-  page.querySelector('#add-btn').addEventListener('click', () => {
+  page.querySelector('#table').addEventListener('click', async (event) => {
+    const unlockButton = event.target.closest('[data-unlock-user]');
+    if (unlockButton) {
+      unlockButton.disabled = true;
+      try {
+        await apiRequest('/api/users/unlock', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: Number(unlockButton.dataset.unlockUser) }),
+        });
+        window.location.reload();
+      } catch (error) {
+        showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to unlock account.');
+        unlockButton.disabled = false;
+      }
+      return;
+    }
+    const button = event.target.closest('[data-reset-password]');
+    if (!button) return;
+    const userId = Number(button.dataset.resetPassword);
+    const employee = employees.data.find((item) => item.employeeid === userId);
+    openDialog({
+      title: 'Issue a temporary password',
+      description: `Generate a one-time password for ${employee?.name || 'this employee'}. They must change it at next sign-in.`,
+      bodyHtml: '<p class="muted">The new password will be shown once and expires after 24 hours.</p>',
+      submitLabel: 'Generate password',
+      onSubmit: async () => {
+        const result = await apiRequest('/api/users/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: userId }),
+        });
+        showTemporaryPasswordResult(page.querySelector('.dialog-backdrop .dialog'), {
+          ...result,
+          name: employee?.name,
+        });
+        return false;
+      },
+    });
+  });
+  const addButton = page.querySelector('#add-btn');
+  if (loadError) {
+    addButton.disabled = true;
+    addButton.title = 'Employee data could not be loaded. Retry before adding an employee.';
+  }
+  addButton.addEventListener('click', () => {
     const backdrop = openDialog({
       title: 'Provision New Employee & Assign Access',
-      description: 'Only Administrators can create new accounts and assign department credentials.',
+      description: 'Create an employee sign-in account. A one-time temporary password will be generated and must be changed at first sign-in.',
       bodyHtml: `
         <div class="form-grid two">
           ${field('name', 'Full name', 'required placeholder="e.g. Samuel Okello"')}
           ${field('nin', 'National ID (NIN)', 'required')}
           ${field('email', 'Email Address', 'type="email" required')}
-          ${field('password', 'Initial Password', 'type="password" required')}
           ${field('phone', 'Phone Number', 'type="tel"')}
           ${field('datehired', 'Date hired', 'type="date"')}
           ${field('salary', 'Salary (UGX)', 'type="number" min="0" required')}
@@ -492,6 +627,7 @@ export async function renderEmployees(page) {
               <option value="Accountant">Accountant</option>
               <option value="HR Staff">HR Staff</option>
               <option value="Branch Manager">Branch Manager</option>
+              <option value="Owner / Executive">Owner / Executive</option>
             </select>
           </label>
           ${selectField('branchid', 'Branch Assignment', `<option value="">Select branch</option>${branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join('')}`, true)}
@@ -506,7 +642,7 @@ export async function renderEmployees(page) {
           const value = String(form.get(key) || '').trim();
           return value ? Number(value) : null;
         };
-        await apiRequest('/employees', {
+        const created = await apiRequest('/employees', {
           method: 'POST',
           body: JSON.stringify({
             name: form.get('name'),
@@ -519,15 +655,22 @@ export async function renderEmployees(page) {
             departmentid: Number(form.get('departmentid')),
             branchid: Number(form.get('branchid')),
             supervisorid: num('supervisorid'),
-            roletype: form.get('roletype'),
+            roletype: form.get('roletype') === 'Owner / Executive' ? 'Branch Manager' : form.get('roletype'),
             pos_terminalid: form.get('pos_terminalid') || null,
             approvallimit: num('approvallimit'),
             certificationnumber: form.get('certificationnumber') || null,
             hr_role: form.get('hr_role') || null,
-            managementlevel: form.get('managementlevel') || null,
+            managementlevel: form.get('roletype') === 'Owner / Executive'
+              ? 'Owner / Executive'
+              : (form.get('managementlevel') || null),
           }),
         });
-        window.location.reload();
+        if (!created.temporary_password) {
+          window.location.reload();
+          return;
+        }
+        showTemporaryPasswordResult(backdrop.querySelector('.dialog'), created);
+        return false;
       },
     });
     const roleFields = {
@@ -536,6 +679,7 @@ export async function renderEmployees(page) {
       Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
       'HR Staff': field('hr_role', 'HR Designation', 'required'),
       'Branch Manager': field('managementlevel', 'Management Level'),
+      'Owner / Executive': field('managementlevel', 'Management Level', 'value="Owner / Executive" readonly'),
     };
     backdrop.querySelector('#roletype')?.addEventListener('change', (event) => {
       backdrop.querySelector('#role-fields').innerHTML = roleFields[event.target.value] || '';
@@ -583,6 +727,7 @@ export async function renderPurchaseOrders(page) {
 }
 
 export async function renderAuditLogs(page) {
+  renderLoadingState(page, 'Loading audit logs…');
   const result = await loadList('/api/audit-logs');
   page.innerHTML = `
     <header class="page-head card">
@@ -590,9 +735,9 @@ export async function renderAuditLogs(page) {
     </header>
     <div id="notice"></div>
     <div id="table"></div>`;
-  showNotice(page.querySelector('#notice'), result.error);
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
   const items = Array.isArray(result.data) ? result.data : (result.data?.items || []);
-  renderTable(page.querySelector('#table'), {
+  if (!result.error) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Time', key: 'timestamp', sortable: true },
       { header: 'User', key: 'username_or_email' },
@@ -605,6 +750,90 @@ export async function renderAuditLogs(page) {
     searchKey: 'action',
   });
 }
+
+const APPROVAL_ACTIONS = {
+  REQUISITION: {
+    permission: 'procurement:approve_req',
+    endpoint: '/api/approvals/requisition',
+    idField: 'requisition_id',
+  },
+  PO: {
+    permission: 'procurement:po_approve',
+    endpoint: '/api/approvals/purchase-order',
+    idField: 'po_id',
+  },
+  LEAVE: {
+    permission: 'hr:leave',
+    endpoint: '/api/approvals/leave',
+    idField: 'leave_id',
+  },
+};
+
+export async function renderApprovals(page) {
+  renderLoadingState(page, 'Loading pending approvals…');
+  const result = await loadList('/api/approvals');
+  page.innerHTML = `
+    <header class="page-head card">
+      <div><div class="kicker">${icons.shield} Workflow</div><h1>Pending Approvals</h1>
+        <p class="muted">Review requests your account is authorized to approve or reject.</p>
+      </div>
+    </header>
+    <div id="notice"></div>
+    <div id="table"></div>`;
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
+  if (result.error) return;
+
+  const approvals = Array.isArray(result.data) ? result.data : [];
+  renderTable(page.querySelector('#table'), {
+    columns: [
+      { header: 'Type', key: 'type', sortable: true },
+      { header: 'Request', key: 'description' },
+      { header: 'Requested By', key: 'requester', sortable: true },
+      { header: 'Submitted', key: 'created_at', sortable: true, cell: (item) => item.created_at ? new Date(item.created_at).toLocaleString() : '—' },
+      {
+        header: 'Decision',
+        key: 'id',
+        cell: (item) => {
+          const action = APPROVAL_ACTIONS[item.type];
+          if (!action || !can(action.permission)) return '<span class="muted">No action available</span>';
+          return `<div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" type="button" data-approval-type="${item.type}" data-approval-id="${item.id}" data-approval-action="APPROVE">Approve</button>
+            <button class="btn btn-outline btn-sm" type="button" data-approval-type="${item.type}" data-approval-id="${item.id}" data-approval-action="REJECT">Reject</button>
+          </div>`;
+        },
+      },
+    ],
+    data: approvals,
+    searchKey: 'description',
+  });
+
+  page.querySelector('#table').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-approval-action]');
+    if (!button) return;
+    const action = APPROVAL_ACTIONS[button.dataset.approvalType];
+    if (!action || !can(action.permission)) return;
+    if (button.dataset.approvalAction === 'REJECT' && !window.confirm('Reject this request?')) return;
+    button.disabled = true;
+    const buttons = button.parentElement.querySelectorAll('button');
+    buttons.forEach((item) => { item.disabled = true; });
+    try {
+      await apiRequest(action.endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          [action.idField]: Number(button.dataset.approvalId),
+          action: button.dataset.approvalAction,
+        }),
+      });
+      await renderApprovals(page);
+    } catch (error) {
+      showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to update this approval.');
+      buttons.forEach((item) => { item.disabled = false; });
+    }
+  });
+}
+
+export async function renderSettings(page) {
+  renderLoadingState(page, 'Loading system settings…');
   const employees = await loadList('/employees');
   const colors = {
     Cashier: 'background:#dbeafe;color:#1d4ed8',
@@ -620,26 +849,149 @@ export async function renderAuditLogs(page) {
       <h1>Branch & Store Settings</h1>
       <p class="muted">Configure branch operations, team members, and role-based access control.</p>
     </header>
+    <div id="notice"></div>
     <div class="grid-2">
       <div class="card">
         <h2>Team Members</h2>
         <div class="form-grid">
-          ${employees.data.length ? employees.data.map((m) => `<div class="team-row"><div><strong>${m.name}</strong><div class="muted">ID: ${m.employeeid}</div></div><span class="badge" style="${colors[m.roletype] || ''}">${m.roletype}</span></div>`).join('') : '<p class="muted">No team members yet</p>'}
+          ${employees.error ? '<p class="muted">Team data is unavailable until the connection recovers.</p>' : employees.data.length ? employees.data.map((m) => `<div class="team-row"><div><strong>${m.name}</strong><div class="muted">ID: ${m.employeeid}</div></div><span class="badge" style="${colors[m.roletype] || ''}">${m.roletype}</span></div>`).join('') : '<p class="muted">No team members yet.</p>'}
         </div>
       </div>
       <div class="card">
         <h2>System Status</h2>
         <p class="page-head"><span>Auth Configured</span><span class="badge">JWT enabled</span></p>
-        <p class="page-head"><span>RLS Policies</span><span class="badge">Enabled</span></p>
-        <p class="muted">FastAPI validates the signed-in employee role before allowing access to MySQL-backed operations.</p>
+        <p class="page-head"><span>Authorization</span><span class="badge">API role checks</span></p>
+        <p class="muted">FastAPI validates the signed-in employee's role and permissions before allowing access to protected operations.</p>
       </div>
     </div>
-    <div class="card form-grid two">
-      <h2 style="grid-column:1/-1">Store Identity & Tax Details</h2>
-      ${field('store-name', 'Store Legal Name', 'placeholder="Configured in your business profile"')}
-      ${field('tin', 'URA Tax Identification Number (TIN)', 'placeholder="Configured in your business profile"')}
-      ${field('branch', 'Active Workspace Branch', 'placeholder="Select a live branch"')}
-      ${field('currency', 'Operating Currency', 'value="UGX (Ugandan Shilling)" disabled')}
+    <div class="card">
+      <h2>Business Profile</h2>
+      <p class="muted">Business identity and tax settings are not currently editable in this interface. The system reports all monetary values in UGX.</p>
     </div>
   `;
+  showNotice(page.querySelector('#notice'), employees.error, { onRetry: () => window.location.reload() });
+}
+
+const ORGANIZATION_PAGES = {
+  branches: {
+    title: 'Company Branches',
+    endpoint: '/api/branches',
+    createEndpoint: '/branches',
+    columns: [
+      { header: 'Branch ID', key: 'branchid', sortable: true },
+      { header: 'Branch', key: 'branchname', sortable: true },
+      { header: 'Location', key: 'location' },
+      { header: 'Contact Number', key: 'contactnumber' },
+    ],
+    fields: () => field('branchname', 'Branch name', 'required')
+      + field('location', 'Location', 'required')
+      + field('contactnumber', 'Contact number', 'type="tel"'),
+    payload: (form) => ({
+      branchname: form.get('branchname'),
+      location: form.get('location'),
+      contactnumber: form.get('contactnumber') || null,
+    }),
+  },
+  departments: {
+    title: 'Departments',
+    endpoint: '/api/departments',
+    createEndpoint: '/api/departments',
+    columns: [
+      { header: 'Department ID', key: 'departmentid', sortable: true },
+      { header: 'Department', key: 'departmentname', sortable: true },
+      { header: 'Branch', key: 'branch_name' },
+    ],
+    fields: (branches) => field('departmentname', 'Department name', 'required')
+      + selectField('branchid', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true),
+    payload: (form) => ({
+      departmentname: form.get('departmentname'),
+      branchid: Number(form.get('branchid')),
+    }),
+  },
+  warehouses: {
+    title: 'Warehouses',
+    endpoint: '/api/warehouses',
+    createEndpoint: '/api/warehouses',
+    columns: [
+      { header: 'Warehouse ID', key: 'warehouse_id', sortable: true },
+      { header: 'Warehouse', key: 'warehouse_name', sortable: true },
+      { header: 'Branch', key: 'branch_name' },
+      { header: 'Location', key: 'location' },
+      { header: 'Status', key: 'is_active', cell: (warehouse) => warehouse.is_active ? 'Active' : 'Inactive' },
+    ],
+    fields: (branches) => field('warehouse_name', 'Warehouse name', 'required')
+      + selectField('branch_id', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true)
+      + field('location', 'Location'),
+    payload: (form) => ({
+      warehouse_name: form.get('warehouse_name'),
+      branch_id: Number(form.get('branch_id')),
+      location: form.get('location') || null,
+      is_active: true,
+    }),
+  },
+};
+
+export async function renderOrganization(page, pageName) {
+  const config = ORGANIZATION_PAGES[pageName];
+  if (!config) {
+    page.innerHTML = '<div class="card" role="alert">Organization page not found.</div>';
+    return;
+  }
+
+  renderLoadingState(page, `Loading ${config.title.toLowerCase()}…`);
+  const [records, branches] = await Promise.all([
+    loadList(config.endpoint),
+    pageName === 'branches' ? Promise.resolve({ data: [] }) : loadList('/api/branches'),
+  ]);
+
+  page.innerHTML = `
+    <header class="page-head card">
+      <div>
+        <div class="kicker">${icons.settings} Organisation setup</div>
+        <h1>${config.title}</h1>
+        <p class="muted">Manage company structure and branch locations.</p>
+      </div>
+      ${can('admin:users') ? `<button class="btn btn-primary" id="add-btn">${icons.plus} Add ${pageName === 'branches' ? 'Branch' : pageName === 'departments' ? 'Department' : 'Warehouse'}</button>` : ''}
+    </header>
+    <div id="notice"></div>
+    <div id="table"></div>
+  `;
+
+  const loadError = records.error || branches.error;
+  showNotice(page.querySelector('#notice'), loadError, { onRetry: () => window.location.reload() });
+  if (!loadError) {
+    const branchNames = new Map(branches.data.map((branch) => [branch.branchid, branch.branchname]));
+    const rows = records.data.map((record) => ({
+      ...record,
+      branch_name: record.branch_name || branchNames.get(record.branchid ?? record.branch_id) || 'Unknown branch',
+    }));
+    renderTable(page.querySelector('#table'), {
+      columns: config.columns,
+      data: rows,
+      searchKey: pageName === 'branches' ? 'branchname' : pageName === 'departments' ? 'departmentname' : 'warehouse_name',
+    });
+  }
+
+  const addButton = page.querySelector('#add-btn');
+  if (!addButton) return;
+  if (loadError) {
+    addButton.disabled = true;
+    addButton.title = 'Required organization data could not be loaded. Retry before adding a record.';
+    return;
+  }
+  addButton.addEventListener('click', () => {
+    openDialog({
+      title: `Add ${pageName === 'branches' ? 'branch' : pageName === 'departments' ? 'department' : 'warehouse'}`,
+      description: `Create a ${pageName === 'branches' ? 'company branch' : pageName === 'departments' ? 'department assigned to a branch' : 'warehouse assigned to a branch'}.`,
+      bodyHtml: config.fields(branches.data),
+      submitLabel: 'Save',
+      onSubmit: async (form) => {
+        await apiRequest(config.createEndpoint, {
+          method: 'POST',
+          body: JSON.stringify(config.payload(form)),
+        });
+        window.location.reload();
+      },
+    });
+  });
 }

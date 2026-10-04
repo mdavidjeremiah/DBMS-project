@@ -24,7 +24,7 @@ class UserCreate(BaseModel):
     name: str
     nin: str
     email: EmailStr
-    password: str
+    password: str = Field(min_length=12, max_length=72)
     phone: Optional[str] = None
     datehired: Optional[date] = None
     salary: Decimal
@@ -36,7 +36,7 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     employeeid: int
     name: str
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     roletype: RoleType
     departmentid: Optional[int] = None
     department_name: Optional[str] = None
@@ -79,6 +79,10 @@ class WarehouseResponse(WarehouseBase):
     warehouse_id: int
     class Config:
         from_attributes = True
+
+class DepartmentCreate(BaseModel):
+    departmentname: str
+    branchid: int
 
 # --- Catalogue & Inventory Schemas ---
 
@@ -187,7 +191,7 @@ class EmployeeCreate(BaseModel):
     name: str
     nin: str
     email: Optional[EmailStr] = None
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, min_length=12, max_length=72)
     phone: Optional[str] = None
     datehired: Optional[date] = None
     salary: Decimal
@@ -370,6 +374,15 @@ class StockTransferCreate(BaseModel):
     notes: Optional[str] = None
     items: List[StockTransferItemCreate]
 
+# --- Stock Adjustment ---
+
+class StockAdjustmentCreate(BaseModel):
+    warehouse_id: int
+    item_id: int
+    variance_quantity: Decimal  # positive = stock gain, negative = shrinkage
+    reason_code: str  # e.g. SHRINKAGE, DAMAGE, STOCKTAKE, CORRECTION
+    notes: Optional[str] = None
+
 # --- User Role Assignment ---
 
 class UserRoleAssign(BaseModel):
@@ -380,9 +393,16 @@ class UserActivateToggle(BaseModel):
     user_id: int
     is_active: bool
 
+class UserUnlock(BaseModel):
+    user_id: int
+
 class PasswordReset(BaseModel):
     user_id: int
-    new_password: str = Field(min_length=8)
+    new_password: Optional[str] = Field(default=None, min_length=12, max_length=72)
+
+class InitialPasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=72)
 
 # --- Dashboard query params ---
 
@@ -438,3 +458,79 @@ class CustomerCreditPayment(BaseModel):
     amount: Decimal = Field(gt=0)
     payment_method: Optional[str] = "CASH"
     reference: Optional[str] = None
+
+# =============================================================================
+# MISSING SCHEMAS (added to fix startup errors)
+# =============================================================================
+
+# --- Cashier Sessions ---
+
+class CashierSessionCreate(BaseModel):
+    branch_id: int
+    warehouse_id: int
+    opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+
+class CashierSessionClose(BaseModel):
+    actual_cash: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+    notes: Optional[str] = None
+
+# --- Purchase Order (direct API) ---
+
+class PurchaseOrderItemCreate(BaseModel):
+    item_id: int
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    unit_price: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+
+class PurchaseOrderCreate(BaseModel):
+    supplierid: int
+    branchid: Optional[int] = None
+    items: Optional[List[PurchaseOrderItemCreate]] = []
+
+# --- Goods Received Note (direct API) ---
+
+class GoodsReceivedNoteItemCreate(BaseModel):
+    item_id: int
+    quantity_received: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    unit_cost: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+
+class GoodsReceivedNoteCreate(BaseModel):
+    po_id: int
+    warehouse_id: int
+    grn_number: Optional[str] = None
+    notes: Optional[str] = None
+    items: List[GoodsReceivedNoteItemCreate]
+
+# --- Payroll Run ---
+
+class PayrollRunCreate(BaseModel):
+    month: str  # e.g. "2026-09"
+    notes: Optional[str] = None
+
+class PayrollRunApprove(BaseModel):
+    run_id: int
+    notes: Optional[str] = None
+
+# --- Customer Credit Account ---
+
+class CustomerCreditAccountCreate(BaseModel):
+    customer_id: int
+    credit_limit: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+# --- Attendance Record ---
+
+class AttendanceRecordCreate(BaseModel):
+    employee_id: int
+    date: date
+    status: str  # PRESENT, ABSENT, HALF_DAY, LATE
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    overtime_hours: Optional[Decimal] = Decimal("0")
+
+# --- Leave Request ---
+
+class LeaveRequestCreate(BaseModel):
+    employee_id: int
+    leave_type: str  # ANNUAL, SICK, MATERNITY, PATERNITY, UNPAID
+    start_date: date
+    end_date: date
+    notes: Optional[str] = None

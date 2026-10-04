@@ -62,8 +62,9 @@ export function showToast(message, type = 'info', duration = 4000) {
   toast.innerHTML = `
     <span style="color:${colorMap[type]};font-weight:700;font-size:1rem;line-height:1.2;">${iconMap[type]}</span>
     <span style="flex:1">${message}</span>
-    <button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;color:var(--muted-foreground);line-height:1;font-size:1.1rem;">&times;</button>
+    <button type="button" aria-label="Dismiss notification" style="background:none;border:none;cursor:pointer;color:var(--muted-foreground);line-height:1;font-size:1.1rem;">&times;</button>
   `;
+  toast.querySelector('button').addEventListener('click', () => toast.remove());
 
   container.appendChild(toast);
 
@@ -134,9 +135,9 @@ export function confirm(title, message, confirmLabel = 'Confirm', variant = 'pri
  * @param {string} message
  * @param {'critical'|'warning'|'info'} level
  * @param {string|null} actionLabel
- * @param {Function|null} onAction
+ * @param {string|null} actionHref
  */
-export function renderAlertBanner(container, message, level = 'info', actionLabel = null, onAction = null) {
+export function renderAlertBanner(container, message, level = 'info', actionLabel = null, actionHref = null) {
   const bg = { critical: '#fef2f2', warning: '#fffbeb', info: '#eff6ff' }[level] || '#eff6ff';
   const border = { critical: 'var(--destructive)', warning: 'var(--accent)', info: 'var(--steel)' }[level];
   const icon = { critical: '🔴', warning: '🟡', info: '🔵' }[level];
@@ -150,42 +151,132 @@ export function renderAlertBanner(container, message, level = 'info', actionLabe
   banner.innerHTML = `
     <span>${icon}</span>
     <span style="flex:1;color:var(--foreground);">${message}</span>
-    ${actionLabel ? `<button id="alert-action" style="background:${border};color:#fff;border:none;
-      border-radius:var(--radius);padding:.35rem .875rem;cursor:pointer;font-size:.8rem;font-weight:600;">
-      ${actionLabel}</button>` : ''}
-    <button onclick="this.parentElement.remove()"
+    ${actionLabel && actionHref ? `<a id="alert-action" href="${actionHref}" style="background:${border};color:#fff;
+      border-radius:var(--radius);padding:.35rem .875rem;text-decoration:none;font-size:.8rem;font-weight:600;">
+      ${actionLabel}</a>` : ''}
+    <button type="button" aria-label="Dismiss alert"
       style="background:none;border:none;cursor:pointer;color:var(--muted-foreground);">&times;</button>
   `;
-  if (actionLabel && onAction) {
-    banner.querySelector('#alert-action')?.addEventListener('click', onAction);
-  }
+  banner.querySelector('button').addEventListener('click', () => banner.remove());
   container.prepend(banner);
 }
 
 // ─── Notification Bell (header badge) ─────────────────────────────
 
-let _alertCount = 0;
-
 export function updateNotificationBadge(count) {
-  _alertCount = count;
   const badge = document.getElementById('hw-notif-badge');
   if (!badge) return;
   badge.textContent = count > 0 ? String(count > 99 ? '99+' : count) : '';
   badge.style.display = count > 0 ? 'inline-flex' : 'none';
+  document.getElementById('hw-notif-btn')?.setAttribute(
+    'aria-label',
+    count > 0 ? `Notifications, ${count} pending approvals` : 'Notifications'
+  );
+}
+
+function approvalPermissionAvailable() {
+  return [
+    'procurement:approve_req',
+    'procurement:po_approve',
+    'hr:leave',
+    'inventory:approve_adjust',
+    'approvals:approve',
+  ].some((permission) => can(permission));
 }
 
 /**
- * Fetch pending approvals and surface as badge + optional toasts.
- * Call once after login, then on a timer (e.g., every 2 min).
+ * Fetch approvals visible to the signed-in user's permissions and update the bell badge.
  */
 export async function refreshAlerts() {
-  if (!can('sales:view') && !can('inventory:view') && !can('procurement:requisition')) return;
+  if (!approvalPermissionAvailable()) {
+    updateNotificationBadge(0);
+    return [];
+  }
+  const approvals = await apiRequest('/api/approvals');
+  if (!Array.isArray(approvals)) throw new Error('The approvals response was not a list.');
+  updateNotificationBadge(approvals.length);
+  return approvals;
+}
+
+function fillNotificationPanel(content, approvals, error = null) {
+  content.replaceChildren();
+  if (error) {
+    const message = document.createElement('p');
+    message.className = 'muted';
+    message.textContent = `Notifications could not be loaded: ${error}`;
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-outline btn-sm';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', async () => {
+      retry.disabled = true;
+      try {
+        fillNotificationPanel(content, await refreshAlerts());
+      } catch (retryError) {
+        fillNotificationPanel(content, [], retryError instanceof Error ? retryError.message : 'Unable to load approvals.');
+      }
+    });
+    content.append(message, retry);
+    return;
+  }
+  if (!approvals.length) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'No pending approvals.';
+    content.append(empty);
+    return;
+  }
+  const list = document.createElement('ul');
+  list.className = 'notification-list';
+  approvals.forEach((approval) => {
+    const item = document.createElement('li');
+    const heading = document.createElement('strong');
+    heading.textContent = approval.type.replaceAll('_', ' ');
+    const description = document.createElement('p');
+    description.textContent = approval.description || 'Approval needs review.';
+    const requester = document.createElement('span');
+    requester.className = 'muted';
+    requester.textContent = `Requested by ${approval.requester || 'Unknown'}`;
+    item.append(heading, description, requester);
+    list.append(item);
+  });
+  const reviewLink = document.createElement('a');
+  reviewLink.className = 'btn btn-primary btn-sm';
+  reviewLink.href = 'approvals.html';
+  reviewLink.textContent = 'Review approvals';
+  content.append(list, reviewLink);
+}
+
+export async function toggleNotificationCenter(button) {
+  const existing = document.getElementById('hw-notification-center');
+  if (existing) {
+    existing.remove();
+    button.setAttribute('aria-expanded', 'false');
+    return;
+  }
+
+  const panel = document.createElement('section');
+  panel.id = 'hw-notification-center';
+  panel.className = 'notification-center';
+  panel.setAttribute('aria-label', 'Pending approvals');
+  panel.innerHTML = `
+    <div class="notification-center-header">
+      <strong>Pending approvals</strong>
+      <button type="button" class="icon-btn" data-close-notifications aria-label="Close notifications">&times;</button>
+    </div>
+    <div class="notification-center-content" aria-live="polite"><p class="muted">Loading approvals…</p></div>
+  `;
+  button.closest('.topbar')?.append(panel);
+  button.setAttribute('aria-expanded', 'true');
+  panel.querySelector('[data-close-notifications]').addEventListener('click', () => {
+    panel.remove();
+    button.setAttribute('aria-expanded', 'false');
+    button.focus();
+  });
+  const content = panel.querySelector('.notification-center-content');
   try {
-    const approvals = await apiRequest('/api/approvals');
-    if (Array.isArray(approvals)) {
-      updateNotificationBadge(approvals.length);
-    }
-  } catch (_) {
-    // Silent — badge stays as-is
+    fillNotificationPanel(content, await refreshAlerts());
+  } catch (error) {
+    fillNotificationPanel(content, [], error instanceof Error ? error.message : 'Unable to load approvals.');
   }
 }

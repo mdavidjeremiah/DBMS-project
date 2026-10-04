@@ -21,8 +21,6 @@ import auth
 
 
 def require_branch_access(db: Session, employee: models.Employee, branch_id: int) -> None:
-    if employee.roletype == models.RoleType.ADMIN:
-        return
     assignments = db.query(models.UserBranchAssignment.branch_id).filter(
         models.UserBranchAssignment.user_id == employee.employeeid
     ).all()
@@ -45,13 +43,12 @@ def require_warehouse_access(
     if warehouse.branch_id != branch_id:
         raise HTTPException(status_code=403, detail="Warehouse does not belong to the selected branch.")
     require_branch_access(db, employee, branch_id)
-    if employee.roletype != models.RoleType.ADMIN:
-        assignments = db.query(models.UserWarehouseAssignment.warehouse_id).filter(
-            models.UserWarehouseAssignment.user_id == employee.employeeid
-        ).all()
-        warehouse_ids = {assignment[0] for assignment in assignments}
-        if warehouse_ids and warehouse_id not in warehouse_ids:
-            raise HTTPException(status_code=403, detail="You do not have access to this warehouse.")
+    assignments = db.query(models.UserWarehouseAssignment.warehouse_id).filter(
+        models.UserWarehouseAssignment.user_id == employee.employeeid
+    ).all()
+    warehouse_ids = {assignment[0] for assignment in assignments}
+    if warehouse_ids and warehouse_id not in warehouse_ids:
+        raise HTTPException(status_code=403, detail="You do not have access to this warehouse.")
     return warehouse
 
 # =====================================================================
