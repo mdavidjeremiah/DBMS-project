@@ -35,7 +35,7 @@ def upgrade() -> None:
         op.add_column("purchase_order", sa.Column("branch_id", sa.Integer(), sa.ForeignKey("branch.branchid"), nullable=True))
         op.create_index("ix_purchase_order_branch_id", "purchase_order", ["branch_id"])
     if "requisition_id" not in po_columns:
-        op.add_column("purchase_order", sa.Column("requisition_id", sa.Integer(), sa.ForeignKey("purchase_requisitions.id"), nullable=True))
+        op.add_column("purchase_order", sa.Column("requisition_id", sa.Integer(), sa.ForeignKey("erp_purchase_requisitions.id"), nullable=True))
         op.create_index("ix_purchase_order_requisition_id", "purchase_order", ["requisition_id"], unique=True)
     if bind.dialect.name == "mysql":
         op.execute("ALTER TABLE purchase_order MODIFY COLUMN status ENUM('PENDING','APPROVED','RECEIVED','CANCELLED','PARTIALLY_RECEIVED') NOT NULL DEFAULT 'PENDING'")
