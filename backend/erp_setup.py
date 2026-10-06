@@ -19,7 +19,7 @@ LEGACY_ROLE = {
 }
 
 ROLE_ACCESS = {
-    "System Administrator": {"*"},
+    "System Administrator": {"admin:users", "admin:audit"},
     "Owner / Executive": {"reports:read", "sales:read", "inventory:read", "finance:read", "procurement:read", "hr:read", "approvals:approve"},
     "General Manager": {"reports:read", "sales:read", "inventory:read", "finance:read", "procurement:read", "hr:read", "approvals:approve"},
     "Branch Manager": {"reports:read", "sales:read", "inventory:read", "finance:read", "procurement:read", "approvals:approve"},
@@ -56,6 +56,8 @@ def ensure_erp_seed(db):
         role = roles[role_name]
         if "*" in access:
             role.permissions = list(permissions.values())
+        elif role_name == "System Administrator":
+            role.permissions = [permissions[code] for code in access]
         else:
             role.permissions = list({*role.permissions, *(permissions[code] for code in access)})
 

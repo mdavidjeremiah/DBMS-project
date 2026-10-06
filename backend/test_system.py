@@ -128,8 +128,8 @@ if sarah:
 
 # Password hashing
 if sarah:
-        check("Sarah password hashes correctly",
-            auth.verify_password(os.environ.get("SEED_DEFAULT_PASSWORD", ""), sarah.hashed_password))
+    check("Sarah password hashes correctly",
+          auth.verify_password(os.environ.get("SEED_DEFAULT_PASSWORD", ""), sarah.hashed_password))
     check("Wrong password rejected",
           not auth.verify_password("wrongpassword", sarah.hashed_password))
 

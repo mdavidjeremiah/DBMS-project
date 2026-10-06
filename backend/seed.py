@@ -5,44 +5,16 @@ warehouses, chart of accounts, categories, suppliers, and initial inventory.
 """
 import os
 import sys
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
 # Ensure backend root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from database import SessionLocal, Base, engine
+from database import Base, SessionLocal, engine
 import models
 import auth
 from erp_setup import ensure_erp_seed
-from database import engine, SessionLocal
-
-def seed_database():
-    db = SessionLocal()
-    try:
-        ensure_erp_seed(db)
-        # Check if already seeded
-        admin_exists = db.query(models.Employee).filter(models.Employee.email == "akena@hardwareworld.com").first()
-        if admin_exists:
-            print("Database already contains Admin account 'Akena'. Checking departments and records...")
-            db.commit()
-            return
-
-        print("Seeding Hardware World initial database records...")
-
-        # 1. Branches
-        b1 = models.Branch(
-            branchname="Main Industrial Branch",
-            location="Plot 42 Jinja Road, Kampala",
-            contactnumber="+256 414 500 100"
-        )
-        b2 = models.Branch(
-            branchname="Downtown Retail Store",
-            location="Shop 14 Luwum Street, Kampala",
-            contactnumber="+256 414 500 200"
-        )
-        db.add_all([b1, b2])
-        db.flush()
 
 PERMISSIONS = [
     # Sales
@@ -86,7 +58,7 @@ PERMISSIONS = [
 ]
 
 ROLE_PERMISSION_MAP = {
-    "System Administrator": [p[0] for p in PERMISSIONS],
+    "System Administrator": ["admin:users", "admin:audit"],
     "Owner / Executive": [p[0] for p in PERMISSIONS if not p[0].startswith("sales:pos")],
     "General Manager": [p[0] for p in PERMISSIONS if not p[0].startswith("admin:all")],
     "Branch Manager": [
@@ -143,6 +115,8 @@ ROLE_PERMISSION_MAP = {
         "payroll:prepare", "payroll:approve"
     ],
 }
+
+ROLES = [(name, f"Hardware World {name} role") for name in ROLE_PERMISSION_MAP]
 
 CHART_OF_ACCOUNTS = [
     ("1010", "Cash on Hand", "ASSET"),
@@ -557,18 +531,11 @@ def seed_baseline(db):
                 notes="Initial opening stock baseline"
             ))
 
-            # Reorder Rule
-            db.add(models.ReorderRule(
-                item_id=prod.itemid,
-                warehouse_id=main_wh.warehouse_id,
-                reorder_level=Decimal(str(p["reorderlevel"])),
-                critical_level=Decimal(str(max(1, p["reorderlevel"] // 2))),
-                target_stock_level=Decimal(str(p["stock"]))
-            ))
+            # Low-stock checks use the product's reorderlevel across warehouses.
     db.commit()
 
-        ensure_erp_seed(db)
-        db.commit()
+    ensure_erp_seed(db)
+    db.commit()
 
     print("Baseline seed successfully applied!")
 

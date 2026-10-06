@@ -14,9 +14,12 @@ Provides the full Section 8 grouped endpoint hierarchy:
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Header, Query
+from pathlib import Path
+import secrets
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, desc
+from sqlalchemy import MetaData, Table, func, or_, desc
 
 import models
 import schemas
@@ -26,6 +29,31 @@ from database import get_db
 from audit import request_ip, write_audit_log
 
 api_router = APIRouter(prefix="/api")
+PROFILE_PHOTO_DIR = Path(__file__).resolve().parent / "uploads" / "profile-photos"
+DEFAULT_PROFILE_PHOTO_DIR = Path(__file__).resolve().parent / "default-profile-photos"
+MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024
+DEFAULT_PROFILE_PHOTO_BY_NAME = {
+    "kiconco flavia": "kiconco-flavia.webp",
+}
+PROFILE_PHOTO_FORMATS = {
+    "image/jpeg": (".jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    "image/png": (".png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
+    "image/webp": (".webp", lambda data: len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"),
+}
+
+
+def employee_profile_photo_filename(employee: models.Employee) -> Optional[str]:
+    if employee.profile_photo_filename:
+        return Path(employee.profile_photo_filename).name
+    normalized_name = " ".join((employee.name or "").casefold().split())
+    return DEFAULT_PROFILE_PHOTO_BY_NAME.get(normalized_name)
+
+
+def employee_profile_photo_url(employee: models.Employee) -> Optional[str]:
+    if not employee_profile_photo_filename(employee):
+        return None
+    return f"/api/users/{employee.employeeid}/profile-photo"
+
 
 # --- Helper: Permission Enforcer ---
 def require_perm(perm_code: str):
@@ -40,6 +68,56 @@ def require_perm(perm_code: str):
             )
         return current_user
     return dependency
+
+
+def employee_branch_ids(db: Session, employee: models.Employee) -> list[int]:
+    assignments = db.query(models.UserBranchAssignment.branch_id).filter(
+        models.UserBranchAssignment.user_id == employee.employeeid
+    ).all()
+    branch_ids = [branch_id for (branch_id,) in assignments]
+    if not branch_ids and employee.branchid:
+        branch_ids.append(employee.branchid)
+    return branch_ids
+
+
+def employee_name(db: Session, employee_id: Optional[int]) -> str:
+    employee = db.get(models.Employee, employee_id) if employee_id else None
+    return employee.name if employee else "Unknown employee"
+
+
+def scope_sales_query(
+    db: Session,
+    employee: models.Employee,
+    query,
+    requested_branch_id: Optional[int] = None,
+):
+    branch_ids = employee_branch_ids(db, employee)
+    if requested_branch_id is not None:
+        if requested_branch_id not in branch_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this branch.")
+        query = query.filter(models.Sale.branchid == requested_branch_id)
+    elif branch_ids:
+        query = query.filter(models.Sale.branchid.in_(branch_ids))
+    else:
+        query = query.filter(models.Sale.branchid.is_(None))
+
+    if employee.roletype == models.RoleType.CASHIER:
+        query = query.filter(models.Sale.employeeid == employee.employeeid)
+    return query
+
+
+PROCUREMENT_READ_PERMISSIONS = (
+    "procurement:view",
+    "procurement:requisition",
+    "procurement:po_create",
+    "procurement:po_approve",
+    "procurement:approve_req",
+    "approvals:approve",
+)
+
+
+def can_view_procurement(db: Session, employee: models.Employee) -> bool:
+    return any(auth.has_permission(db, employee, permission) for permission in PROCUREMENT_READ_PERMISSIONS)
 
 # =====================================================================
 # /api/auth & /api/users
@@ -64,6 +142,7 @@ def get_user_me(
         "employeeid": current_user.employeeid,
         "name": current_user.name,
         "email": current_user.email,
+        "profile_photo_url": employee_profile_photo_url(current_user),
         "roletype": current_user.roletype,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
@@ -74,6 +153,162 @@ def get_user_me(
         "branch_ids": branch_ids,
         "warehouse_ids": warehouse_ids,
     }
+
+
+@api_router.post("/users/generate-temporary-password", tags=["Administration"])
+def generate_employee_temporary_password(
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.has_permission(db, current_user, "admin:users"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    return {"temporary_password": auth.generate_temporary_password()}
+
+
+@api_router.put("/users/{employee_id}/profile-photo", tags=["Authentication"])
+def upload_employee_profile_photo(
+    employee_id: int,
+    file: UploadFile = File(...),
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not (
+        auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF)
+        or auth.has_permission(db, current_user, "admin:users")
+        or auth.has_permission(db, current_user, "hr:manage")
+    ):
+        raise HTTPException(status_code=403, detail="Employee profile photo permission required.")
+
+    employee = db.get(models.Employee, employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found.")
+
+    content = file.file.read(MAX_PROFILE_PHOTO_BYTES + 1)
+    if len(content) > MAX_PROFILE_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Profile photo must be 5 MB or smaller.")
+    photo_format = PROFILE_PHOTO_FORMATS.get(file.content_type or "")
+    if not photo_format or not photo_format[1](content):
+        raise HTTPException(status_code=415, detail="Upload a valid JPEG, PNG, or WebP image.")
+
+    extension = photo_format[0]
+    PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{secrets.token_hex(24)}{extension}"
+    photo_path = PROFILE_PHOTO_DIR / filename
+    old_filename = employee.profile_photo_filename
+    photo_path.write_bytes(content)
+    try:
+        employee.profile_photo_filename = filename
+        db.commit()
+    except Exception:
+        db.rollback()
+        photo_path.unlink(missing_ok=True)
+        raise
+    if old_filename:
+        (PROFILE_PHOTO_DIR / Path(old_filename).name).unlink(missing_ok=True)
+    return {"profile_photo_url": f"/api/users/{employee.employeeid}/profile-photo"}
+
+
+@api_router.get("/users/{employee_id}/profile-photo", tags=["Authentication"])
+def get_employee_profile_photo(
+    employee_id: int,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    employee = db.get(models.Employee, employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+
+    filename = employee_profile_photo_filename(employee)
+    if not filename:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    photo_directory = PROFILE_PHOTO_DIR if employee.profile_photo_filename else DEFAULT_PROFILE_PHOTO_DIR
+    photo_path = photo_directory / filename
+    if not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    media_type = next(
+        (content_type for content_type, (extension, _) in PROFILE_PHOTO_FORMATS.items() if filename.endswith(extension)),
+        None,
+    )
+    if not media_type:
+        raise HTTPException(status_code=404, detail="Profile photo not found.")
+    return FileResponse(
+        photo_path,
+        media_type=media_type,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@api_router.post("/auth/initial-password", tags=["Authentication"])
+def change_initial_password(
+    payload: schemas.InitialPasswordChange,
+    request: Request,
+    response: Response,
+    current_user: models.Employee = Depends(auth.get_initial_password_change_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.verify_password(payload.current_password, current_user.hashed_password or ""):
+        raise HTTPException(status_code=400, detail="The current temporary password is incorrect.")
+    normalized_password = payload.new_password.casefold()
+    if normalized_password in {
+        (current_user.name or "").casefold(),
+        (current_user.email or "").casefold(),
+    } or auth.verify_password(payload.new_password, current_user.hashed_password or ""):
+        raise HTTPException(status_code=422, detail="Choose a password different from your name, email, and temporary password.")
+    try:
+        password_hash = auth.get_password_hash(payload.new_password)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Use a password no longer than 72 UTF-8 bytes.") from error
+
+    now = datetime.utcnow()
+    current_user.hashed_password = password_hash
+    current_user.must_change_password = False
+    current_user.temporary_password_expires_at = None
+    current_user.password_changed_at = now
+    current_user.failed_login_attempts = 0
+    current_user.last_failed_login_at = None
+    current_user.locked_until = None
+    current_user.last_login_at = now
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.add(models.PasswordEvent(
+        user_id=current_user.employeeid,
+        event_type="INITIAL_PASSWORD_CHANGED",
+        timestamp=now,
+        ip_address=request_ip(request),
+        reason="Employee completed mandatory first-login password change",
+    ))
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="INITIAL_PASSWORD_CHANGED",
+        module="authentication",
+        entity_type="employee",
+        entity_id=current_user.employeeid,
+        details="Employee changed their temporary password",
+        ip_address=request_ip(request),
+    ))
+    db.commit()
+    access_token = auth.create_access_token(
+        data={
+            "sub": current_user.email,
+            "name": current_user.name,
+            "role": current_user.roletype.value,
+            "departmentid": current_user.departmentid,
+            "departmentname": current_user.department.departmentname if current_user.department else "General",
+            "branchid": current_user.branchid,
+            "tv": current_user.token_version,
+        },
+        expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    response.set_cookie(
+        key="hw_access_token",
+        value=access_token,
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        secure=auth.COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
+    return {"detail": "Password changed.", "next_route": "index.html"}
 
 # =====================================================================
 # /api/roles & /api/permissions
@@ -107,6 +342,78 @@ def get_api_branches(
     db: Session = Depends(get_db)
 ):
     return db.query(models.Branch).all()
+
+@api_router.post("/departments", tags=["Organization"])
+def create_api_department(
+    payload: schemas.DepartmentCreate,
+    request: Request,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not auth.has_permission(db, current_user, "admin:users"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    branch = db.get(models.Branch, payload.branchid)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found.")
+    department_name = payload.departmentname.strip()
+    if not department_name:
+        raise HTTPException(status_code=422, detail="Department name is required.")
+    department = models.Department(departmentname=department_name, branchid=branch.branchid)
+    db.add(department)
+    db.flush()
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="DEPARTMENT_CREATED",
+        module="admin",
+        entity_type="department",
+        entity_id=department.departmentid,
+        details=f"Created department {department_name} for branch {branch.branchname}",
+        ip_address=request_ip(request),
+    ))
+    db.commit()
+    return {
+        "departmentid": department.departmentid,
+        "departmentname": department.departmentname,
+        "branchid": department.branchid,
+        "branch_name": branch.branchname,
+    }
+
+@api_router.post("/warehouses", response_model=schemas.WarehouseResponse, tags=["Organization"])
+def create_api_warehouse(
+    payload: schemas.WarehouseCreate,
+    request: Request,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not auth.has_permission(db, current_user, "admin:users"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    branch = db.get(models.Branch, payload.branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found.")
+    warehouse_name = payload.warehouse_name.strip()
+    if not warehouse_name:
+        raise HTTPException(status_code=422, detail="Warehouse name is required.")
+    warehouse = models.Warehouse(
+        warehouse_name=warehouse_name,
+        branch_id=branch.branchid,
+        location=payload.location,
+        is_active=payload.is_active,
+    )
+    db.add(warehouse)
+    db.flush()
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="WAREHOUSE_CREATED",
+        module="admin",
+        entity_type="warehouse",
+        entity_id=warehouse.warehouse_id,
+        details=f"Created warehouse {warehouse_name} for branch {branch.branchname}",
+        ip_address=request_ip(request),
+    ))
+    db.commit()
+    return warehouse
 
 @api_router.get("/warehouses", response_model=List[schemas.WarehouseResponse], tags=["Organization"])
 def get_api_warehouses(
@@ -146,8 +453,7 @@ def get_api_employees(
 ):
     """Retrieve employees. Enforces payroll/salary privacy (Rule 9)."""
     can_view_salary = (
-        current_user.roletype in (models.RoleType.ADMIN, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
-        or auth.has_permission(db, current_user, "hr:view")
+        auth.has_any_role(current_user, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
         or auth.has_permission(db, current_user, "payroll:view")
     )
 
@@ -160,6 +466,7 @@ def get_api_employees(
         result.append({
             "employeeid": e.employeeid,
             "name": e.name,
+            "profile_photo_url": employee_profile_photo_url(e),
             "nin": e.nin if (can_view_salary or is_self) else "PROTECTED",
             "email": e.email,
             "phone": e.phone,
@@ -212,7 +519,11 @@ def get_api_products(
             "itemname": p.itemname,
             "description": p.description,
             "unitprice": float(p.unitprice),
-            "costprice": float(p.costprice or 0) if current_user.roletype in (models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.ACCOUNTANT) else None,
+            "costprice": float(p.costprice or 0) if (
+                auth.has_any_role(current_user, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.ACCOUNTANT)
+                or auth.has_permission(db, current_user, "inventory:view")
+                or auth.has_permission(db, current_user, "finance:view")
+            ) else None,
             "reorderlevel": p.reorderlevel or 0,
             "base_unit": p.base_unit or "Piece",
             "categoryid": p.categoryid,
@@ -228,7 +539,7 @@ def create_api_product(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER):
         raise HTTPException(status_code=403, detail="Not authorized to create products.")
 
     product = models.Product(**payload.model_dump())
@@ -319,10 +630,14 @@ def create_stock_adjustment(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER, models.RoleType.PROCUREMENT_OFFICER):
-        raise HTTPException(status_code=403, detail="Not authorized to approve stock adjustments.")
+    if not auth.has_permission(db, current_user, "inventory:adjust"):
+        raise HTTPException(status_code=403, detail="Stock adjustment submission permission required.")
+    warehouse = db.get(models.Warehouse, payload.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found.")
+    erp_service.require_warehouse_access(db, current_user, payload.warehouse_id, warehouse.branch_id)
 
-    adj = erp_service.execute_stock_adjustment(
+    adj = erp_service.submit_stock_adjustment(
         payload=payload,
         current_user=current_user,
         db=db,
@@ -412,11 +727,14 @@ def get_api_sales(
 ):
     if not auth.has_permission(db, current_user, "sales:view"):
         raise HTTPException(status_code=403, detail="Sales view permission required.")
-    q = db.query(models.Sale)
-    if branch_id:
-        q = q.filter(models.Sale.branchid == branch_id)
+    q = scope_sales_query(db, current_user, db.query(models.Sale), branch_id)
 
     sales = q.order_by(models.Sale.saledate.desc()).limit(limit).all()
+    branch_ids = {sale.branchid for sale in sales if sale.branchid is not None}
+    branch_names = {
+        branch.branchid: branch.branchname
+        for branch in db.query(models.Branch).filter(models.Branch.branchid.in_(branch_ids)).all()
+    } if branch_ids else {}
     res = []
     for s in sales:
         cashier = db.get(models.Employee, s.employeeid)
@@ -429,7 +747,7 @@ def get_api_sales(
             "payment_method": s.paymentmethod,
             "customer_name": customer.name if customer else "Walk-in Customer",
             "cashier_name": cashier.name if cashier else "Unknown Cashier",
-            "branch_name": s.branch.branchname if s.branch else "Unknown",
+            "branch_name": branch_names.get(s.branchid, "Unknown"),
             "items": [
                 {
                     "itemid": i.itemid,
@@ -473,7 +791,12 @@ def get_requisitions(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    reqs = db.query(models.PurchaseRequisition).order_by(models.PurchaseRequisition.created_at.desc()).all()
+    if not can_view_procurement(db, current_user):
+        raise HTTPException(status_code=403, detail="Procurement view permission required.")
+    branch_ids = employee_branch_ids(db, current_user)
+    req_query = db.query(models.PurchaseRequisition)
+    req_query = req_query.filter(models.PurchaseRequisition.branch_id.in_(branch_ids)) if branch_ids else req_query.filter(models.PurchaseRequisition.branch_id.is_(None))
+    reqs = req_query.order_by(models.PurchaseRequisition.created_at.desc()).all()
     res = []
     for r in reqs:
         requester = db.get(models.Employee, r.requester_id)
@@ -527,7 +850,7 @@ def approve_requisition(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER):
         raise HTTPException(status_code=403, detail="Manager approval required.")
     req = db.get(models.PurchaseRequisition, req_id)
     if not req:
@@ -542,10 +865,15 @@ def get_api_purchase_orders(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    orders = db.query(models.PurchaseOrder).order_by(models.PurchaseOrder.orderdate.desc()).all()
+    if not can_view_procurement(db, current_user):
+        raise HTTPException(status_code=403, detail="Procurement view permission required.")
+    branch_ids = employee_branch_ids(db, current_user)
+    order_query = db.query(models.PurchaseOrder)
+    order_query = order_query.filter(models.PurchaseOrder.branch_id.in_(branch_ids)) if branch_ids else order_query.filter(models.PurchaseOrder.branch_id.is_(None))
+    orders = order_query.order_by(models.PurchaseOrder.orderdate.desc()).all()
     res = []
     for o in orders:
-        supplier = db.get(models.Supplier, o.supplierid)
+        supplier = db.get(models.Supplier, o.supplierid) if o.supplierid else None
         officer = db.get(models.Employee, o.employeeid)
         res.append({
             "po_id": o.po_id,
@@ -563,8 +891,14 @@ def create_api_purchase_order(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER):
         raise HTTPException(status_code=403, detail="Not authorized to create purchase orders.")
+    branch_id = payload.branchid or current_user.branchid
+    if branch_id is None:
+        raise HTTPException(status_code=400, detail="A branch must be assigned to create a purchase order.")
+    if not db.get(models.Branch, branch_id):
+        raise HTTPException(status_code=404, detail="Branch not found.")
+    erp_service.require_branch_access(db, current_user, branch_id)
 
     total = Decimal("0")
     if payload.items:
@@ -580,7 +914,7 @@ def create_api_purchase_order(
     po = models.PurchaseOrder(
         supplierid=payload.supplierid,
         employeeid=current_user.employeeid,
-        branchid=payload.branchid or current_user.branchid,
+        branch_id=branch_id,
         status=models.POStatus.APPROVED if auto_approve else models.POStatus.PENDING,
         total_amount=total,
         orderdate=datetime.utcnow(),
@@ -663,7 +997,7 @@ def get_api_payroll(
 ):
     """Protected payroll list: only HR, Finance, or Admin may view."""
     can_view = (
-        current_user.roletype in (models.RoleType.ADMIN, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
+        auth.has_any_role(current_user, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
         or auth.has_permission(db, current_user, "payroll:view")
     )
     if not can_view:
@@ -694,7 +1028,7 @@ def create_payroll_run(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.HR_STAFF):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF):
         raise HTTPException(status_code=403, detail="Only HR Staff or Admin can prepare payroll runs.")
 
     run = erp_service.execute_payroll_run(
@@ -712,7 +1046,7 @@ def approve_payroll(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.ACCOUNTANT, models.RoleType.BRANCH_MANAGER):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT, models.RoleType.BRANCH_MANAGER):
         raise HTTPException(status_code=403, detail="Finance or Management authorization required.")
 
     run = erp_service.approve_and_post_payroll(
@@ -732,7 +1066,10 @@ def get_chart_of_accounts(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.ACCOUNTANT):
+    if not (
+        auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
+        or auth.has_permission(db, current_user, "finance:view")
+    ):
         raise HTTPException(status_code=403, detail="Finance authorization required.")
     accts = db.query(models.ChartOfAccount).order_by(models.ChartOfAccount.account_code).all()
     return [{"account_code": a.account_code, "account_name": a.account_name, "account_type": a.account_type} for a in accts]
@@ -743,7 +1080,10 @@ def get_journal_entries(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.ACCOUNTANT):
+    if not (
+        auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
+        or auth.has_permission(db, current_user, "finance:view")
+    ):
         raise HTTPException(status_code=403, detail="Finance authorization required.")
 
     entries = db.query(models.JournalEntry).order_by(models.JournalEntry.entry_date.desc()).limit(limit).all()
@@ -856,8 +1196,12 @@ def get_department_dashboard(
     }
 
     # 2. Procurement & Inventory Dashboard
-    pending_pos = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.status == models.POStatus.PENDING).count()
-    pending_reqs = db.query(models.PurchaseRequisition).filter(models.PurchaseRequisition.status == "PENDING").count()
+    pending_pos = db.query(func.count()).select_from(models.PurchaseOrder).filter(
+        models.PurchaseOrder.status == models.POStatus.PENDING
+    ).scalar() or 0
+    pending_reqs = db.query(func.count()).select_from(models.PurchaseRequisition).filter(
+        models.PurchaseRequisition.status == "PENDING"
+    ).scalar() or 0
 
     procurement_dashboard = {
         "inventory_health": {
@@ -880,8 +1224,12 @@ def get_department_dashboard(
     }
 
     # 3. Human Resources Dashboard
-    staff_count = db.query(models.Employee).filter(models.Employee.is_active == True).count()
-    pending_leaves = db.query(models.LeaveRequest).filter(models.LeaveRequest.status == "PENDING").count()
+    staff_count = db.query(func.count()).select_from(models.Employee).filter(
+        models.Employee.is_active == True
+    ).scalar() or 0
+    pending_leaves = db.query(func.count()).select_from(models.LeaveRequest).filter(
+        models.LeaveRequest.status == "PENDING"
+    ).scalar() or 0
     latest_payroll_run = db.query(models.PayrollRun).order_by(models.PayrollRun.created_at.desc()).first()
 
     hr_dashboard = {
@@ -903,7 +1251,19 @@ def get_department_dashboard(
     fin_accts = db.query(models.FinancialAccount).all()
     cash_pos = sum([a.balance for a in fin_accts], Decimal("0"))
     ar_total = db.query(func.sum(models.CustomerCreditAccount.current_balance)).scalar() or Decimal("0")
-    unpaid_ap = db.query(func.sum(models.SupplierInvoice.invoice_amount)).filter(models.SupplierInvoice.payment_status == "UNPAID").scalar() or Decimal("0")
+    invoice_table = Table("supplier_invoices", MetaData(), autoload_with=db.get_bind())
+    payment_table = Table("supplier_payments", MetaData(), autoload_with=db.get_bind())
+    invoice_amount = invoice_table.c.get("amount")
+    if invoice_amount is None:
+        invoice_amount = invoice_table.c.get("invoice_amount")
+    if invoice_amount is None:
+        raise RuntimeError("Supplier invoices table has no recognized amount column.")
+    payment_amount = payment_table.c.get("amount")
+    if payment_amount is None:
+        raise RuntimeError("Supplier payments table has no amount column.")
+    invoice_total = db.query(func.coalesce(func.sum(invoice_amount), 0)).select_from(invoice_table).scalar() or Decimal("0")
+    payment_total = db.query(func.coalesce(func.sum(payment_amount), 0)).select_from(payment_table).scalar() or Decimal("0")
+    unpaid_ap = max(Decimal("0"), invoice_total - payment_total)
 
     finance_dashboard = {
         "cash_position": {
@@ -945,17 +1305,87 @@ def get_department_dashboard(
         }
     }
 
-    # 6. Administration Dashboard
-    failed_logins = db.query(models.AuditLog).filter(
-        models.AuditLog.action == "FAILED_LOGIN",
-        models.AuditLog.timestamp >= filter_start
-    ).count()
+    # 6. System Administrator Dashboard
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = now - timedelta(days=7)
+    temporary_password_cutoff = now + timedelta(hours=24)
+    active_accounts = db.query(models.Employee).filter(
+        models.Employee.is_active == True,
+        models.Employee.hashed_password.isnot(None),
+    )
+    pending_setup = db.query(models.Employee).filter(
+        models.Employee.is_active == True,
+        models.Employee.hashed_password.is_(None),
+    )
+    expiring_passwords = db.query(models.Employee).filter(
+        models.Employee.is_active == True,
+        models.Employee.must_change_password == True,
+        models.Employee.temporary_password_expires_at.isnot(None),
+        models.Employee.temporary_password_expires_at <= temporary_password_cutoff,
+    ).order_by(models.Employee.temporary_password_expires_at.asc())
+    locked_accounts = db.query(models.Employee).filter(
+        models.Employee.is_active == True,
+        models.Employee.locked_until > now,
+    ).order_by(models.Employee.locked_until.asc())
+    login_failures_today = db.query(models.AuditLog).filter(
+        models.AuditLog.action.in_(("FAILED_LOGIN", "LOGIN_FAILED")),
+        models.AuditLog.timestamp >= day_start,
+    )
+    failed_logins = login_failures_today.count()
+    accounts_affected_today = login_failures_today.with_entities(
+        func.count(func.distinct(models.AuditLog.username_or_email))
+    ).scalar() or 0
+    privilege_changes = db.query(func.count()).select_from(models.AuditLog).filter(
+        models.AuditLog.action.in_((
+            "ROLE_ASSIGNED", "ROLE_REMOVED", "DEPARTMENT_ASSIGNED",
+            "BRANCH_SCOPE_CHANGED", "WAREHOUSE_SCOPE_CHANGED",
+        )),
+        models.AuditLog.timestamp >= week_start,
+    ).scalar() or 0
+    suspicious_ips = db.query(models.AuditLog.ip_address).filter(
+        models.AuditLog.action.in_(("FAILED_LOGIN", "LOGIN_FAILED")),
+        models.AuditLog.timestamp >= day_start,
+        models.AuditLog.ip_address.isnot(None),
+    ).group_by(models.AuditLog.ip_address).having(func.count() >= 3).count()
+
+    action_queue = []
+    for employee in pending_setup.order_by(models.Employee.name.asc()).limit(5).all():
+        action_queue.append({
+            "action": "Create account",
+            "employee": employee.name,
+            "details": employee.department.departmentname if employee.department else "Department not assigned",
+            "href": "employees.html",
+        })
+    for employee in expiring_passwords.limit(5).all():
+        expires = employee.temporary_password_expires_at
+        action_queue.append({
+            "action": "Temporary password expired" if expires <= now else "Temporary password expiring",
+            "employee": employee.name,
+            "details": f"{employee.department.departmentname if employee.department else 'Department not assigned'} · {expires.strftime('%Y-%m-%d %H:%M UTC')}",
+            "href": "employees.html",
+        })
+    for employee in locked_accounts.limit(5).all():
+        action_queue.append({
+            "action": "Review locked account",
+            "employee": employee.name,
+            "details": f"{employee.failed_login_attempts or 0} failed sign-in attempts",
+            "href": "audit-logs.html",
+        })
 
     admin_dashboard = {
         "system_status": "OPERATIONAL",
         "database_connected": True,
-        "active_users_count": staff_count,
+        "active_users_count": active_accounts.count(),
+        "active_accounts_count": active_accounts.count(),
+        "pending_account_setup_count": pending_setup.count(),
+        "password_actions_count": expiring_passwords.count(),
+        "locked_accounts_count": locked_accounts.count(),
         "failed_logins_today": failed_logins,
+        "accounts_affected_today": accounts_affected_today,
+        "privilege_changes_week": privilege_changes,
+        "suspicious_access_count": suspicious_ips,
+        "action_queue": action_queue[:12],
         "recent_audit_events": [
             {
                 "id": a.auditlogid,
@@ -965,19 +1395,36 @@ def get_department_dashboard(
                 "details": a.details,
             }
             for a in db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).limit(10).all()
-        ]
-    }
+        ],
+    } if current_user.roletype == models.RoleType.ADMIN else None
 
     return {
         "department": current_user.department.departmentname if current_user.department else "Administration",
         "roletype": current_user.roletype.value,
         "date_filter": date_filter,
         "active_branch": active_branch_id,
-        "sales": sales_dashboard,
-        "procurement": procurement_dashboard,
-        "hr": hr_dashboard,
-        "finance": finance_dashboard,
-        "operations": operations_dashboard,
+        "sales": sales_dashboard if (
+            auth.has_any_role(current_user, models.RoleType.CASHIER)
+            or auth.has_permission(db, current_user, "sales:view")
+            or auth.has_permission(db, current_user, "sales:pos")
+        ) else None,
+        "procurement": procurement_dashboard if (
+            auth.has_any_role(current_user, models.RoleType.PROCUREMENT_OFFICER)
+            or auth.has_permission(db, current_user, "inventory:view")
+            or auth.has_permission(db, current_user, "procurement:view")
+        ) else None,
+        "hr": hr_dashboard if (
+            auth.has_any_role(current_user, models.RoleType.HR_STAFF)
+            or auth.has_permission(db, current_user, "hr:view")
+        ) else None,
+        "finance": finance_dashboard if (
+            auth.has_any_role(current_user, models.RoleType.ACCOUNTANT)
+            or auth.has_permission(db, current_user, "finance:view")
+        ) else None,
+        "operations": operations_dashboard if (
+            auth.has_any_role(current_user, models.RoleType.BRANCH_MANAGER)
+            or auth.has_permission(db, current_user, "reports:view")
+        ) else None,
         "admin": admin_dashboard,
     }
 
@@ -993,10 +1440,17 @@ def get_pending_approvals(
 ):
     """Return all pending approval requests visible to this user's role."""
     result = []
+    can_approve_all = auth.has_permission(db, current_user, "approvals:approve")
 
     # Purchase Requisitions
-    if not module or module == "REQUISITION":
-        reqs = db.query(models.PurchaseRequisition).filter(models.PurchaseRequisition.status == "PENDING").all()
+    branch_ids = employee_branch_ids(db, current_user)
+    if (not module or module == "REQUISITION") and (
+        can_approve_all or auth.has_permission(db, current_user, "procurement:approve_req")
+    ):
+        reqs = db.query(models.PurchaseRequisition).filter(
+            models.PurchaseRequisition.status == "PENDING",
+            models.PurchaseRequisition.branch_id.in_(branch_ids) if branch_ids else models.PurchaseRequisition.branch_id.is_(None),
+        ).all()
         for r in reqs:
             requester = db.get(models.Employee, r.requester_id)
             result.append({
@@ -1010,8 +1464,13 @@ def get_pending_approvals(
             })
 
     # Purchase Orders
-    if not module or module == "PO":
-        pos = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.status == models.POStatus.PENDING).all()
+    if (not module or module == "PO") and (
+        can_approve_all or auth.has_permission(db, current_user, "procurement:po_approve")
+    ):
+        pos = db.query(models.PurchaseOrder).filter(
+            models.PurchaseOrder.status == models.POStatus.PENDING,
+            models.PurchaseOrder.branch_id.in_(branch_ids) if branch_ids else models.PurchaseOrder.branch_id.is_(None),
+        ).all()
         for p in pos:
             supplier = db.get(models.Supplier, p.supplierid)
             result.append({
@@ -1025,8 +1484,15 @@ def get_pending_approvals(
             })
 
     # Leave Requests
-    if not module or module == "LEAVE":
-        leaves = db.query(models.LeaveRequest).filter(models.LeaveRequest.status == "PENDING").all()
+    if (not module or module == "LEAVE") and (
+        can_approve_all or auth.has_permission(db, current_user, "hr:leave")
+    ):
+        leaves = db.query(models.LeaveRequest).join(
+            models.Employee, models.Employee.employeeid == models.LeaveRequest.employee_id
+        ).filter(
+            models.LeaveRequest.status == "PENDING",
+            models.Employee.branchid.in_(branch_ids) if branch_ids else models.Employee.branchid.is_(None),
+        ).all()
         for lv in leaves:
             emp = db.get(models.Employee, lv.employee_id)
             result.append({
@@ -1039,8 +1505,15 @@ def get_pending_approvals(
             })
 
     # Stock Adjustments
-    if not module or module == "ADJUSTMENT":
-        adjs = db.query(models.StockAdjustment).filter(models.StockAdjustment.status == "PENDING").all()
+    if (not module or module == "ADJUSTMENT") and (
+        can_approve_all or auth.has_permission(db, current_user, "inventory:approve_adjust")
+    ):
+        adjs = db.query(models.StockAdjustment).join(
+            models.Warehouse, models.Warehouse.warehouse_id == models.StockAdjustment.warehouse_id
+        ).filter(
+            models.StockAdjustment.status == "PENDING",
+            models.Warehouse.branch_id.in_(branch_ids) if branch_ids else models.Warehouse.branch_id.is_(None),
+        ).all()
         for a in adjs:
             requester = db.get(models.Employee, a.requester_id)
             result.append({
@@ -1054,6 +1527,33 @@ def get_pending_approvals(
             })
 
     return sorted(result, key=lambda x: x["created_at"] or "", reverse=True)
+
+
+@api_router.post("/approvals/stock-adjustment", tags=["Approvals"])
+def approve_stock_adjustment(
+    payload: schemas.StockAdjustmentApproval,
+    request: Request,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.has_permission(db, current_user, "inventory:approve_adjust"):
+        raise HTTPException(status_code=403, detail="You do not have stock adjustment approval permission.")
+    adjustment = db.get(models.StockAdjustment, payload.adjustment_id)
+    if not adjustment:
+        raise HTTPException(status_code=404, detail="Stock adjustment not found.")
+    warehouse = db.get(models.Warehouse, adjustment.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found.")
+    erp_service.require_warehouse_access(db, current_user, adjustment.warehouse_id, warehouse.branch_id)
+    result = erp_service.approve_or_reject_stock_adjustment(
+        adjustment_id=payload.adjustment_id,
+        action=payload.action,
+        approver=current_user,
+        notes=payload.notes,
+        db=db,
+        ip_address=request_ip(request),
+    )
+    return {"adjustment_id": result.adjustment_id, "status": result.status}
 
 
 @api_router.post("/approvals/requisition", tags=["Approvals"])
@@ -1274,7 +1774,7 @@ def create_financial_account(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.ACCOUNTANT):
+    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT):
         raise HTTPException(status_code=403, detail="Finance authorization required.")
     acct = models.FinancialAccount(
         account_name=payload.account_name,
@@ -1494,6 +1994,15 @@ def list_users(
             "email": e.email,
             "roletype": e.roletype.value,
             "is_active": e.is_active,
+            "account_status": (
+                "INACTIVE" if not e.is_active
+                else "LOCKED" if e.locked_until and e.locked_until > datetime.utcnow()
+                else "PENDING_ACTIVATION" if not e.hashed_password
+                else "PASSWORD_CHANGE_REQUIRED" if e.must_change_password
+                else "ACTIVE"
+            ),
+            "locked_until": e.locked_until,
+            "temporary_password_expires_at": e.temporary_password_expires_at,
             "department_name": e.department.departmentname if e.department else None,
             "branch_name": e.branch.branchname if e.branch else None,
             "roles": auth.get_user_roles(db, e),
@@ -1563,6 +2072,44 @@ def toggle_user_active(
     return {"user_id": payload.user_id, "is_active": emp.is_active}
 
 
+@api_router.post("/users/unlock", tags=["Administration"])
+def unlock_user(
+    payload: schemas.UserUnlock,
+    request: Request,
+    current_user: models.Employee = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not auth.has_permission(db, current_user, "admin:users"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    employee = db.get(models.Employee, payload.user_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="User not found.")
+    employee.failed_login_attempts = 0
+    employee.last_failed_login_at = None
+    employee.locked_until = None
+    employee.token_version = (employee.token_version or 0) + 1
+    db.add(models.PasswordEvent(
+        user_id=employee.employeeid,
+        event_type="ACCOUNT_UNLOCKED",
+        initiated_by_user_id=current_user.employeeid,
+        timestamp=datetime.utcnow(),
+        ip_address=request_ip(request),
+        reason="Account unlocked by administrator",
+    ))
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="ACCOUNT_UNLOCKED",
+        module="admin",
+        entity_type="employee",
+        entity_id=employee.employeeid,
+        details=f"Unlocked account for employee #{employee.employeeid}",
+        ip_address=request_ip(request),
+    ))
+    db.commit()
+    return {"user_id": employee.employeeid, "unlocked": True}
+
+
 @api_router.post("/users/reset-password", tags=["Administration"])
 def reset_user_password(
     payload: schemas.PasswordReset,
@@ -1575,11 +2122,33 @@ def reset_user_password(
     emp = db.get(models.Employee, payload.user_id)
     if not emp:
         raise HTTPException(status_code=404, detail="User not found.")
-    emp.hashed_password = auth.get_password_hash(payload.new_password)
+    temporary_password = payload.new_password or auth.generate_temporary_password()
+    if len(temporary_password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="Use a password no longer than 72 UTF-8 bytes.")
+    if temporary_password.casefold() in {
+        (emp.name or "").casefold(),
+        (emp.email or "").casefold(),
+    } or auth.verify_password(temporary_password, emp.hashed_password or ""):
+        raise HTTPException(status_code=422, detail="Choose a password different from the employee's name, email, and current password.")
+    emp.hashed_password = auth.get_password_hash(temporary_password)
+    emp.must_change_password = True
+    emp.temporary_password_expires_at = auth.temporary_password_expiry()
+    emp.password_changed_at = datetime.utcnow()
+    emp.failed_login_attempts = 0
+    emp.last_failed_login_at = None
+    emp.locked_until = None
     emp.token_version = (emp.token_version or 0) + 1
+    db.add(models.PasswordEvent(
+        user_id=emp.employeeid,
+        event_type="PASSWORD_RESET_BY_ADMIN",
+        initiated_by_user_id=current_user.employeeid,
+        timestamp=datetime.utcnow(),
+        ip_address=request_ip(request),
+        reason="Administrator issued a temporary reset password",
+    ))
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
-        action="USER_PASSWORD_RESET",
+        action="PASSWORD_RESET_BY_ADMIN",
         module="admin",
         entity_type="employee",
         entity_id=payload.user_id,
@@ -1587,7 +2156,12 @@ def reset_user_password(
         ip_address=request_ip(request),
     ))
     db.commit()
-    return {"user_id": payload.user_id, "message": "Password reset successfully."}
+    return {
+        "user_id": payload.user_id,
+        "message": "Password reset successfully. The employee must change it at next sign-in.",
+        "temporary_password_expires_at": emp.temporary_password_expires_at.isoformat(),
+        "temporary_password": temporary_password if payload.new_password is None else None,
+    }
 
 
 # =====================================================================
@@ -1661,9 +2235,12 @@ def sales_report(
 ):
     if not auth.has_permission(db, current_user, "sales:view"):
         raise HTTPException(status_code=403, detail="Sales view permission required.")
-    q = db.query(models.Sale).filter(models.Sale.status == "COMPLETED")
-    if branch_id:
-        q = q.filter(models.Sale.branchid == branch_id)
+    q = scope_sales_query(
+        db,
+        current_user,
+        db.query(models.Sale).filter(models.Sale.status == "COMPLETED"),
+        branch_id,
+    )
     if date_from:
         q = q.filter(models.Sale.saledate >= date_from)
     if date_to:

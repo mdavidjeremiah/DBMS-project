@@ -10,7 +10,7 @@ import { signOut } from './auth.js';
 import { initShell, getPageEl } from './shell.js';
 import { setCurrentUser } from './permissions.js';
 import { renderDashboard } from './dashboard.js';
-import { renderLogin, renderCrud, CRUD_PAGES, renderSales, renderEmployees, renderSettings, renderPayroll, renderLedger, renderPurchaseOrders, renderAuditLogs } from './pages.js';
+import { renderLogin, renderPasswordChange, renderCrud, CRUD_PAGES, renderSales, renderEmployees, renderSettings, renderOrganization, renderPayroll, renderLedger, renderPurchaseOrders, renderAuditLogs, renderApprovals } from './pages.js';
 import { toast } from './notifications.js';
 
 const pageName = document.body.dataset.page;
@@ -19,6 +19,11 @@ async function boot() {
   // ── Public pages: no auth required ──
   if (pageName === 'login') {
     await renderLogin();
+    return;
+  }
+
+  if (pageName === 'change-password') {
+    renderPasswordChange();
     return;
   }
 
@@ -60,14 +65,22 @@ async function boot() {
   // Listen to date-filter changes and re-render
   document.addEventListener('hw:datefilter', (e) => {
     if (pageName === 'dashboard' || pageName === 'index') {
-      renderDashboard(page, e.detail.value).catch(() => {});
+      renderDashboard(page, e.detail.value).catch((error) => {
+        console.error('Unable to refresh dashboard for the selected date range:', error);
+      });
     }
   });
 
-  if (pageName === 'dashboard') await renderDashboard(page);
-  else if (pageName === 'sales') await renderSales(page, session.user);
+  if (pageName === 'dashboard' || pageName === 'index') await renderDashboard(page);
+  else if (pageName === 'sales') await renderSales(page, user);
   else if (pageName === 'employees') await renderEmployees(page);
   else if (pageName === 'settings') await renderSettings(page);
+  else if (['branches', 'warehouses', 'departments'].includes(pageName)) await renderOrganization(page, pageName);
+  else if (pageName === 'payroll') await renderPayroll(page);
+  else if (pageName === 'ledger') await renderLedger(page);
+  else if (pageName === 'purchase-orders') await renderPurchaseOrders(page);
+  else if (pageName === 'audit-logs') await renderAuditLogs(page);
+  else if (pageName === 'approvals') await renderApprovals(page);
   else if (CRUD_PAGES[pageName]) await renderCrud(page, CRUD_PAGES[pageName]);
 }
 

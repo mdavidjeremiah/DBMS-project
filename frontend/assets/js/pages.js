@@ -1,5 +1,5 @@
 import { apiRequest, API_URL, loadList } from './api.js';
-import { field, money, openDialog, renderTable, selectField, showNotice } from './ui.js';
+import { escapeHtml, field, money, openDialog, renderLoadingState, renderTable, selectField, showNotice } from './ui.js';
 import { icons } from './icons.js';
 import { buildGraphData, renderGraph } from './graph.js';
 import { getCurrentUser, can } from './permissions.js';
@@ -23,52 +23,36 @@ export async function renderLogin() {
     departments = [];
   }
 
-  const staffDepts = departments.filter((d) => d.departmentname !== 'Administration');
+  const staffDepts = departments.filter((d) => d.departmentname.trim().toLowerCase() !== 'administration');
   const root = document.getElementById('app');
   root.innerHTML = `
     <div class="auth-card">
       <div class="center">
         <div class="brand-mark" style="margin:0 auto 0.75rem">${icons.shield}</div>
         <h1>Hardware World</h1>
-        <p class="kicker">Enterprise DBMS Portal</p>
-        <p class="muted">Role-Based & Attribute-Based Access Control (RBAC & ABAC)</p>
-      </div>
-      <div class="switcher">
-        <button type="button" class="active" data-type="staff">${icons.usercheck} Staff Member</button>
-        <button type="button" data-type="admin">${icons.shield} Administrator</button>
+        <p class="kicker">Staff Member</p>
+        <p class="muted">Sign in with your work account and assigned department.</p>
       </div>
       <div id="auth-error" class="notice error hidden"></div>
       <form id="login-form" class="form-grid">
-        <label class="field">Full Name or Email
-          <input class="control" name="username" required placeholder="Enter your name or email">
+        <label class="field">Name or email
+          <input class="control" name="username" autocomplete="username" required placeholder="Enter your name or email">
         </label>
-        <div id="dept-field">
-          <label class="field">Assigned Department (ABAC Verification)
-            <select class="control" name="department" required>
-              ${staffDepts.map((d) => `<option value="${d.departmentname}">${d.departmentname}</option>`).join('')}
-            </select>
-          </label>
-        </div>
-        <div id="admin-note" class="hidden card"><strong>System Administrator Scope</strong><p class="muted">Administrator credentials have unrestricted oversight across all store departments.</p></div>
+        <label class="field">Department
+          <select class="control" name="department">
+            <option value="" selected>Select your department</option>
+            ${staffDepts.map((d) => `<option value="${d.departmentname}">${d.departmentname}</option>`).join('')}
+          </select>
+        </label>
         <label class="field">Password
-          <input class="control" name="password" type="password" required placeholder="Enter account password">
+          <input class="control" name="password" type="password" autocomplete="current-password" required placeholder="Enter your assigned password">
         </label>
-        <button class="btn btn-primary" type="submit">Sign in as Staff Member</button>
+        <button class="btn btn-primary" type="submit">Sign in</button>
       </form>
-      <p class="muted center">User accounts are created exclusively by the System Administrator.<br><a href="signup.html">Inquire about account provisioning →</a></p>
     </div>
   `;
 
-  let loginType = 'staff';
   const form = root.querySelector('#login-form');
-  const setType = (type) => {
-    loginType = type;
-    root.querySelectorAll('.switcher button').forEach((btn) => btn.classList.toggle('active', btn.dataset.type === type));
-    root.querySelector('#dept-field').classList.toggle('hidden', type === 'admin');
-    root.querySelector('#admin-note').classList.toggle('hidden', type !== 'admin');
-    form.querySelector('button[type=submit]').textContent = `Sign in as ${type === 'admin' ? 'Administrator' : 'Staff Member'}`;
-  };
-  root.querySelectorAll('.switcher button').forEach((btn) => btn.addEventListener('click', () => setType(btn.dataset.type)));
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -77,11 +61,11 @@ export async function renderLogin() {
     try {
       const payload = {
         username: form.username.value.trim(),
-        password: form.password.value.trim(),
-        department: loginType === 'staff' ? form.department.value : 'Administration',
-        login_type: loginType,
+        password: form.password.value,
+        department: form.department.value || null,
+        login_type: 'staff',
       };
-      await fetch(`${API_URL}/login?cookie_only=true`, {
+      const loginResult = await fetch(`${API_URL}/login?cookie_only=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -91,7 +75,7 @@ export async function renderLogin() {
         if (!res.ok) throw new Error(body.detail ?? 'Authentication failed.');
         return body;
       });
-      window.location.replace('index.html');
+      window.location.replace(loginResult.requires_password_change ? 'change-password.html' : 'index.html');
     } catch (error) {
       errorEl.textContent = error instanceof Error ? error.message : 'Unable to sign in.';
       errorEl.classList.remove('hidden');
@@ -99,7 +83,54 @@ export async function renderLogin() {
   });
 }
 
+export function renderPasswordChange() {
+  const root = document.getElementById('app');
+  root.innerHTML = `
+    <div class="auth-card">
+      <div class="center">
+        <div class="brand-mark" style="margin:0 auto 0.75rem">${icons.shield}</div>
+        <h1>Set your personal password</h1>
+        <p class="muted">Your administrator issued a temporary password. Change it before accessing your workspace.</p>
+      </div>
+      <div id="password-error" class="notice error hidden" role="alert"></div>
+      <form id="password-change-form" class="form-grid">
+        ${field('current_password', 'Temporary password', 'type="password" autocomplete="current-password" required')}
+        ${field('new_password', 'New password', 'type="password" autocomplete="new-password" minlength="12" maxlength="72" required')}
+        ${field('confirm_password', 'Confirm new password', 'type="password" autocomplete="new-password" minlength="12" maxlength="72" required')}
+        <p class="muted">Use at least 12 characters. A memorable passphrase is fine.</p>
+        <button class="btn btn-primary" type="submit">Save password and continue</button>
+      </form>
+    </div>
+  `;
+
+  root.querySelector('#password-change-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = root.querySelector('#password-error');
+    error.classList.add('hidden');
+    const currentPassword = form.elements.namedItem('current_password').value;
+    const newPassword = form.elements.namedItem('new_password').value;
+    const confirmation = form.elements.namedItem('confirm_password').value;
+    if (newPassword !== confirmation) {
+      error.textContent = 'The new passwords do not match.';
+      error.classList.remove('hidden');
+      return;
+    }
+    try {
+      await apiRequest('/api/auth/initial-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      window.location.replace('index.html');
+    } catch (reason) {
+      error.textContent = reason instanceof Error ? reason.message : 'Unable to change your password.';
+      error.classList.remove('hidden');
+    }
+  });
+}
+
 export async function renderCrud(page, config) {
+  renderLoadingState(page, `Loading ${config.title.toLowerCase()}…`);
   const result = await loadList(config.endpoint);
   page.innerHTML = `
     <header class="page-head card">
@@ -111,10 +142,12 @@ export async function renderCrud(page, config) {
       ${config.create ? `<button class="btn btn-primary" id="add-btn">${icons.plus} ${config.create.trigger}</button>` : ''}
     </header>
     <div id="notice"></div>
-    <div id="table"></div>
+    <div id="table" class="employee-directory-table"></div>
   `;
-  showNotice(page.querySelector('#notice'), result.error);
-  renderTable(page.querySelector('#table'), { columns: config.columns, data: result.data, searchKey: config.searchKey });
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
+  if (!result.error) {
+    renderTable(page.querySelector('#table'), { columns: config.columns, data: result.data, searchKey: config.searchKey });
+  }
   page.querySelector('#add-btn')?.addEventListener('click', () => {
     openDialog({
       title: config.create.title,
@@ -251,6 +284,7 @@ export const CRUD_PAGES = {
 };
 
 export async function renderSales(page, user = window.__HW_USER__) {
+  renderLoadingState(page, 'Loading sales and products…');
   const [sales, products] = await Promise.all([
     loadList('/sales'),
     loadList('/products'),
@@ -258,9 +292,15 @@ export async function renderSales(page, user = window.__HW_USER__) {
   const cashiers = [user].filter(Boolean);
   const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
   const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  const hasPOS = canSell;
   let cashierSession = null;
+  let cashierSessionError = null;
   if (canSell) {
-    try { cashierSession = await apiRequest('/cashier-sessions/current'); } catch { cashierSession = null; }
+    try {
+      cashierSession = await apiRequest('/cashier-sessions/current');
+    } catch (error) {
+      cashierSessionError = error instanceof Error ? error.message : 'Unable to check the cashier session.';
+    }
   }
   page.innerHTML = `
     <header class="page-head card">
@@ -269,16 +309,16 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <h1>Sales & Retail Checkout</h1>
         <p class="muted">Completed sales with stock deduction, payment, and finance journals.</p>
       </div>
-      ${hasPOS ? `<button class="btn btn-primary" id="open-session-btn">Open Session</button>` : ''}
     </header>
-    ${canSell && !cashierSession ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
+    <div id="session-notice"></div>
+    ${canSell && !cashierSession && !cashierSessionError ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
     ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
     <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
       <section class="card">
         <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
           <select class="control" id="product-select" style="flex:1">
             <option value="">Select a product</option>
-            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${p.itemname} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
+            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${escapeHtml(p.itemname)} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
           </select>
           <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
         </div>
@@ -301,7 +341,6 @@ export async function renderSales(page, user = window.__HW_USER__) {
         </label>
         <input class="control" name="customername" placeholder="Customer name">
         <input class="control" name="customerphone" placeholder="Phone number">
-        <label class="field">Payment method<select class="control" name="payment_method"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
         <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
         <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete Sale</button>
       </aside>
@@ -310,7 +349,8 @@ export async function renderSales(page, user = window.__HW_USER__) {
     <div id="notice"></div>
     <div id="table"></div>
   `;
-  showNotice(page.querySelector('#notice'), sales.error || products.error);
+  showNotice(page.querySelector('#notice'), sales.error || products.error, { onRetry: () => window.location.reload() });
+  showNotice(page.querySelector('#session-notice'), cashierSessionError, { onRetry: () => window.location.reload() });
   const savedReceipt = sessionStorage.getItem('hw_last_receipt');
   if (savedReceipt) {
     try {
@@ -329,12 +369,19 @@ export async function renderSales(page, user = window.__HW_USER__) {
   page.querySelector('#open-cashier-session')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = 'Opening session…';
     try {
       await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
       window.location.reload();
-    } catch (error) { showNotice(page.querySelector('#notice'), error.message); }
+    } catch (error) {
+      showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to open cashier session.');
+      submitButton.disabled = false;
+      submitButton.textContent = 'Open session';
+    }
   });
-  renderTable(page.querySelector('#table'), {
+  if (!sales.error) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Receipt #', key: 'saleid', sortable: true },
       { header: 'Date', key: 'saledate', sortable: true },
@@ -358,7 +405,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
     } else {
       box.innerHTML = lines.map((line) => {
         const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}"><div><strong>${product.itemname}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
+        return `<div class="line" data-id="${line.itemid}"><div><strong>${escapeHtml(product.itemname)}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
       }).join('');
     }
     const total = lines.reduce((sum, line) => {
@@ -372,8 +419,6 @@ export async function renderSales(page, user = window.__HW_USER__) {
     const sel = page.querySelector('#product-select');
     const itemid = Number(sel.value);
     if (!itemid) return;
-    const opt = sel.querySelector(`option[value="${itemid}"]`);
-    const stock = parseFloat(opt?.dataset.stock || 0);
     const existing = lines.find((l) => l.itemid === itemid);
     const selectedProduct = products.data.find((p) => p.itemid === itemid);
     if (existing) existing.quantity = Math.min(Number(selectedProduct.stock_qty), existing.quantity + 1);
@@ -440,7 +485,114 @@ export async function renderSales(page, user = window.__HW_USER__) {
   });
 }
 
+function showTemporaryPasswordResult(dialog, account, photoUploadError = null, retryPhotoUpload = null) {
+  dialog.querySelector('p.muted').textContent = 'Copy this temporary password and share it securely. It will not be shown again.';
+  const fields = dialog.querySelector('.form-grid');
+  fields.replaceChildren();
+  const message = document.createElement('p');
+  message.textContent = `${account.name || 'The employee'} must change this password at first sign-in. It expires ${new Date(account.temporary_password_expires_at).toLocaleString()}.`;
+  const passwordInput = document.createElement('input');
+  passwordInput.className = 'control';
+  passwordInput.readOnly = true;
+  passwordInput.value = account.temporary_password;
+  passwordInput.setAttribute('aria-label', 'One-time temporary password');
+  const status = document.createElement('p');
+  status.className = 'muted';
+  status.setAttribute('role', 'status');
+  if (photoUploadError) {
+    status.textContent = `Account created, but the profile photo could not be saved: ${photoUploadError}`;
+  }
+  const actions = dialog.querySelector('.dialog-actions');
+  const submit = actions.querySelector('button[type="submit"]');
+  submit.hidden = true;
+  const done = actions.querySelector('[data-cancel]');
+  done.textContent = 'Done';
+  done.addEventListener('click', () => window.location.reload());
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'btn btn-outline';
+  copy.textContent = 'Copy password';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(account.temporary_password);
+      status.textContent = 'Temporary password copied.';
+    } catch {
+      passwordInput.focus();
+      passwordInput.select();
+      status.textContent = 'Clipboard access was unavailable. The password is selected; copy it now.';
+    }
+  });
+  actions.prepend(copy);
+  if (photoUploadError && retryPhotoUpload) {
+    const retryPhoto = document.createElement('button');
+    retryPhoto.type = 'button';
+    retryPhoto.className = 'btn btn-outline';
+    retryPhoto.textContent = 'Retry photo upload';
+    retryPhoto.addEventListener('click', async () => {
+      retryPhoto.disabled = true;
+      try {
+        await retryPhotoUpload();
+        status.textContent = 'Profile photo uploaded successfully.';
+        retryPhoto.remove();
+      } catch (error) {
+        status.textContent = `Profile photo could not be saved: ${error instanceof Error ? error.message : 'Upload failed.'}`;
+        retryPhoto.disabled = false;
+      }
+    });
+    actions.prepend(retryPhoto);
+  }
+  fields.append(message, passwordInput, status);
+}
+
+function showEmployeePhotoUploadFailure(dialog, employeeName, errorMessage, retryPhotoUpload) {
+  dialog.querySelector('#dialog-description').textContent = 'The employee account was created, but the profile photo still needs attention.';
+  const fields = dialog.querySelector('.form-grid');
+  fields.replaceChildren();
+  const message = document.createElement('p');
+  message.textContent = `${employeeName}'s account was created.`;
+  const status = document.createElement('p');
+  status.className = 'notice error';
+  status.setAttribute('role', 'alert');
+  status.textContent = `The profile photo could not be saved: ${errorMessage}`;
+  const actions = dialog.querySelector('.dialog-actions');
+  actions.querySelector('button[type="submit"]').hidden = true;
+  const done = actions.querySelector('[data-cancel]');
+  done.textContent = 'Done';
+  done.addEventListener('click', () => window.location.reload());
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'btn btn-outline';
+  retry.textContent = 'Retry photo upload';
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    try {
+      await retryPhotoUpload();
+      status.className = 'muted';
+      status.textContent = 'Profile photo uploaded successfully.';
+      retry.remove();
+    } catch (uploadError) {
+      status.textContent = `The profile photo could not be saved: ${uploadError instanceof Error ? uploadError.message : 'Upload failed.'}`;
+      retry.disabled = false;
+    }
+  });
+  actions.prepend(retry);
+  fields.append(message, status);
+}
+
+function employeeRoleFields(role) {
+  const roleFields = {
+    Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-TERMINAL-02" required'),
+    'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),
+    Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
+    'HR Staff': field('hr_role', 'HR Designation', 'required'),
+    'Branch Manager': field('managementlevel', 'Management Level'),
+    'Owner / Executive': field('managementlevel', 'Management Level', 'value="Owner / Executive" readonly'),
+  };
+  return roleFields[role] || '<p class="muted role-field-hint">Select an assigned role to show the relevant role-specific fields.</p>';
+}
+
 export async function renderEmployees(page) {
+  renderLoadingState(page, 'Loading employee directory…');
   const [employees, branches, departments] = await Promise.all([
     loadList('/employees'),
     loadList('/branches'),
@@ -456,49 +608,185 @@ export async function renderEmployees(page) {
       <button class="btn btn-primary" id="add-btn">${icons.plus} Add Employee</button>
     </header>
     <div id="notice"></div>
-    <div id="table"></div>
+    <div id="table" class="employee-directory-table"></div>
   `;
-  showNotice(page.querySelector('#notice'), employees.error || branches.error || departments.error);
-  renderTable(page.querySelector('#table'), {
+  const loadError = employees.error || branches.error || departments.error;
+  showNotice(page.querySelector('#notice'), loadError, { onRetry: () => window.location.reload() });
+  if (!loadError) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Employee ID', key: 'employeeid', sortable: true },
       { header: 'Name', key: 'name', sortable: true },
+      { header: 'Email', key: 'email' },
       { header: 'Role', key: 'roletype', sortable: true },
       { header: 'Department', key: 'department_name' },
+      { header: 'Account Status', key: 'account_status' },
       { header: 'Branch', key: 'branch_name' },
       { header: 'Phone', key: 'phone' },
       { header: 'Date Hired', key: 'datehired', sortable: true },
+      {
+        header: 'Account Actions',
+        key: 'employeeid',
+        cell: (employee) => {
+          const canManagePhotos = can('admin:users') || can('hr:manage');
+          const canManageAccount = can('admin:users') && employee.employeeid !== getCurrentUser()?.employeeid;
+          if (!canManagePhotos && !canManageAccount) return '';
+          return `<div class="employee-account-actions">
+            ${canManagePhotos ? `<button class="btn btn-outline btn-sm" type="button" data-profile-photo="${employee.employeeid}">${employee.profile_photo_url ? 'Change photo' : 'Add photo'}</button>` : ''}
+            ${canManageAccount ? `<button class="btn btn-primary btn-sm" type="button" data-reset-password="${employee.employeeid}">Reset password</button>${employee.is_locked ? `<button class="btn btn-outline btn-sm" type="button" data-unlock-user="${employee.employeeid}">Unlock</button>` : ''}` : ''}
+          </div>`;
+        },
+      },
     ],
     data: employees.data,
     searchKey: 'name',
   });
-  page.querySelector('#add-btn').addEventListener('click', () => {
+  page.querySelector('#table').addEventListener('click', async (event) => {
+    const photoButton = event.target.closest('[data-profile-photo]');
+    if (photoButton) {
+      const employee = employees.data.find((item) => item.employeeid === Number(photoButton.dataset.profilePhoto));
+      if (!employee) return;
+      const existingPhoto = employee.profile_photo_url
+        ? `<img class="employee-photo-dialog-image" src="${escapeHtml(employee.profile_photo_url)}" alt="">`
+        : `<div class="avatar employee-photo-dialog-avatar" aria-hidden="true">${escapeHtml((employee.name || 'U').charAt(0))}</div>`;
+      const backdrop = openDialog({
+        title: employee.profile_photo_url ? 'Change employee photo' : 'Add employee photo',
+        description: `Choose a profile photo for ${employee.name}. It will appear in their dashboard user chip and sidebar.`,
+        bodyHtml: `
+          <div class="employee-photo-dialog">
+            <div class="employee-photo-dialog-preview">${existingPhoto}</div>
+            <label class="field">Employee picture
+              <input class="control" type="file" name="profile_photo" accept=".jpg,.jpeg,image/jpeg,.png,image/png,.webp,image/webp" required>
+            </label>
+            <p class="muted">JPG/JPEG, PNG, or WebP; maximum 5 MB.</p>
+          </div>
+        `,
+        submitLabel: 'Save photo',
+        onSubmit: async (form) => {
+          const photo = form.get('profile_photo');
+          if (!(photo instanceof File) || photo.size === 0) {
+            throw new Error('Choose an image to upload.');
+          }
+          if (photo.size > 5 * 1024 * 1024) {
+            throw new Error('Choose an image no larger than 5 MB.');
+          }
+          const upload = new FormData();
+          upload.append('file', photo, photo.name);
+          await apiRequest(`/api/users/${employee.employeeid}/profile-photo`, {
+            method: 'PUT',
+            body: upload,
+          });
+          window.location.reload();
+        },
+      });
+      const photoInput = backdrop.querySelector('input[name="profile_photo"]');
+      const preview = backdrop.querySelector('.employee-photo-dialog-preview');
+      let previewUrl = null;
+      photoInput.addEventListener('change', () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = null;
+        const photo = photoInput.files?.[0];
+        if (!photo) return;
+        if (photo.size > 5 * 1024 * 1024) {
+          photoInput.setCustomValidity('Choose an image no larger than 5 MB.');
+          photoInput.reportValidity();
+          return;
+        }
+        photoInput.setCustomValidity('');
+        previewUrl = URL.createObjectURL(photo);
+        preview.innerHTML = `<img class="employee-photo-dialog-image" src="${escapeHtml(previewUrl)}" alt="Selected employee photo preview">`;
+      });
+      backdrop.querySelector('[data-cancel]').addEventListener('click', () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+      }, { once: true });
+      return;
+    }
+    const unlockButton = event.target.closest('[data-unlock-user]');
+    if (unlockButton) {
+      unlockButton.disabled = true;
+      try {
+        await apiRequest('/api/users/unlock', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: Number(unlockButton.dataset.unlockUser) }),
+        });
+        window.location.reload();
+      } catch (error) {
+        showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to unlock account.');
+        unlockButton.disabled = false;
+      }
+      return;
+    }
+    const button = event.target.closest('[data-reset-password]');
+    if (!button) return;
+    const userId = Number(button.dataset.resetPassword);
+    const employee = employees.data.find((item) => item.employeeid === userId);
+    openDialog({
+      title: 'Issue a temporary password',
+      description: `Generate a one-time password for ${employee?.name || 'this employee'}. They must change it at next sign-in.`,
+      bodyHtml: '<p class="muted">The new password will be shown once and expires after 24 hours.</p>',
+      submitLabel: 'Generate password',
+      onSubmit: async () => {
+        const result = await apiRequest('/api/users/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: userId }),
+        });
+        showTemporaryPasswordResult(page.querySelector('.dialog-backdrop .dialog'), {
+          ...result,
+          name: employee?.name,
+        });
+        return false;
+      },
+    });
+  });
+  const addButton = page.querySelector('#add-btn');
+  if (loadError) {
+    addButton.disabled = true;
+    addButton.title = 'Employee data could not be loaded. Retry before adding an employee.';
+  }
+  addButton.addEventListener('click', () => {
+    const isSystemAdmin = getCurrentUser()?.roletype === 'Admin';
     const backdrop = openDialog({
       title: 'Provision New Employee & Assign Access',
-      description: 'Only Administrators can create new accounts and assign department credentials.',
+      description: 'Create an employee sign-in account. A one-time temporary password will be generated and must be changed at first sign-in.',
       bodyHtml: `
         <div class="form-grid two">
+          <div class="profile-photo-picker">
+            <div class="avatar profile-photo-preview" aria-hidden="true">U<img id="profile-photo-preview" alt="" hidden></div>
+            <div class="profile-photo-controls">
+              <label class="field">Employee picture
+                <input class="control" type="file" name="profile_photo" accept=".jpg,.jpeg,image/jpeg,.png,image/png,.webp,image/webp">
+              </label>
+              <p class="muted">Optional. JPG/JPEG, PNG, or WebP; maximum 5 MB.</p>
+            </div>
+          </div>
           ${field('name', 'Full name', 'required placeholder="e.g. Samuel Okello"')}
           ${field('nin', 'National ID (NIN)', 'required')}
           ${field('email', 'Email Address', 'type="email" required')}
-          ${field('password', 'Initial Password', 'type="password" required')}
+          ${isSystemAdmin ? `<div class="employee-password-field">
+            <label class="field" for="initial-password">Temporary sign-in password
+              <input class="control" id="initial-password" name="password" type="text" autocomplete="new-password" readonly>
+            </label>
+            <button class="btn btn-primary btn-sm" id="generate-initial-password" type="button">Generate temporary password</button>
+            <p class="muted" id="initial-password-help" aria-live="polite">Generate one now, or leave blank and the system will generate it when the account is provisioned.</p>
+          </div>` : ''}
           ${field('phone', 'Phone Number', 'type="tel"')}
           ${field('datehired', 'Date hired', 'type="date"')}
           ${field('salary', 'Salary (UGX)', 'type="number" min="0" required')}
           <label class="field">Assigned Role (RBAC)
-            <select class="control" name="roletype" id="roletype">
+            <select class="control" name="roletype" id="roletype" required>
+              <option value="">Select an assigned role</option>
               <option value="Cashier">Cashier (Sales & POS)</option>
               <option value="Procurement Officer">Procurement Officer</option>
               <option value="Accountant">Accountant</option>
               <option value="HR Staff">HR Staff</option>
               <option value="Branch Manager">Branch Manager</option>
+              <option value="Owner / Executive">Owner / Executive</option>
             </select>
           </label>
           ${selectField('branchid', 'Branch Assignment', `<option value="">Select branch</option>${branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join('')}`, true)}
           ${selectField('departmentid', 'Department (ABAC Policy)', `<option value="">Select assigned department</option>${departments.data.map((d) => `<option value="${d.departmentid}">${d.departmentname}</option>`).join('')}`, true)}
           ${selectField('supervisorid', 'Supervisor (optional)', `<option value="">No supervisor</option>${employees.data.map((e) => `<option value="${e.employeeid}">${e.name}</option>`).join('')}`)}
+          <div id="role-fields" class="employee-role-fields" aria-live="polite">${employeeRoleFields('')}</div>
         </div>
-        <div id="role-fields">${field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-TERMINAL-02" required')}</div>
       `,
       submitLabel: 'Provision Account',
       onSubmit: async (form) => {
@@ -506,7 +794,7 @@ export async function renderEmployees(page) {
           const value = String(form.get(key) || '').trim();
           return value ? Number(value) : null;
         };
-        await apiRequest('/employees', {
+        const created = await apiRequest('/employees', {
           method: 'POST',
           body: JSON.stringify({
             name: form.get('name'),
@@ -519,26 +807,99 @@ export async function renderEmployees(page) {
             departmentid: Number(form.get('departmentid')),
             branchid: Number(form.get('branchid')),
             supervisorid: num('supervisorid'),
-            roletype: form.get('roletype'),
+            roletype: form.get('roletype') === 'Owner / Executive' ? 'Branch Manager' : form.get('roletype'),
             pos_terminalid: form.get('pos_terminalid') || null,
             approvallimit: num('approvallimit'),
             certificationnumber: form.get('certificationnumber') || null,
             hr_role: form.get('hr_role') || null,
-            managementlevel: form.get('managementlevel') || null,
+            managementlevel: form.get('roletype') === 'Owner / Executive'
+              ? 'Owner / Executive'
+              : (form.get('managementlevel') || null),
           }),
         });
-        window.location.reload();
+        const photo = form.get('profile_photo');
+        const retryPhotoUpload = async () => {
+          if (!(photo instanceof File)) return;
+          const photoForm = new FormData();
+          photoForm.append('file', photo, photo.name);
+          await apiRequest(`/api/users/${created.employeeid}/profile-photo`, {
+            method: 'PUT',
+            body: photoForm,
+          });
+        };
+        let photoUploadError = null;
+        if (photo instanceof File && photo.size > 0) {
+          try {
+            await retryPhotoUpload();
+          } catch (error) {
+            photoUploadError = error instanceof Error ? error.message : 'Upload failed.';
+          }
+        }
+        if (!created.temporary_password) {
+          if (photoUploadError) {
+            showEmployeePhotoUploadFailure(
+              backdrop.querySelector('.dialog'),
+              created.name,
+              photoUploadError,
+              retryPhotoUpload,
+            );
+            return false;
+          }
+          window.location.reload();
+          return;
+        }
+        showTemporaryPasswordResult(
+          backdrop.querySelector('.dialog'),
+          created,
+          photoUploadError,
+          retryPhotoUpload,
+        );
+        return false;
       },
     });
-    const roleFields = {
-      Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'required'),
-      'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),
-      Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
-      'HR Staff': field('hr_role', 'HR Designation', 'required'),
-      'Branch Manager': field('managementlevel', 'Management Level'),
-    };
-    backdrop.querySelector('#roletype')?.addEventListener('change', (event) => {
-      backdrop.querySelector('#role-fields').innerHTML = roleFields[event.target.value] || '';
+    const photoInput = backdrop.querySelector('input[name="profile_photo"]');
+    const photoPreview = backdrop.querySelector('#profile-photo-preview');
+    const passwordInput = backdrop.querySelector('#initial-password');
+    const passwordHelp = backdrop.querySelector('#initial-password-help');
+    backdrop.querySelector('#generate-initial-password')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      passwordHelp.textContent = 'Generating a secure password…';
+      try {
+        const result = await apiRequest('/api/users/generate-temporary-password', { method: 'POST' });
+        passwordInput.value = result.temporary_password;
+        passwordHelp.textContent = 'Password generated by the server. It will be shown once after the account is provisioned and must be changed at first sign-in.';
+      } catch (error) {
+        passwordHelp.textContent = `Could not generate a secure password: ${error instanceof Error ? error.message : 'Password generation failed.'}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    let previewUrl = null;
+    photoInput.addEventListener('change', () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+      const file = photoInput.files?.[0];
+      photoInput.setCustomValidity(file && file.size > 5 * 1024 * 1024 ? 'Choose an image no larger than 5 MB.' : '');
+      if (!file || photoInput.validationMessage) {
+        photoPreview.hidden = true;
+        photoPreview.removeAttribute('src');
+        if (photoInput.validationMessage) photoInput.reportValidity();
+        return;
+      }
+      previewUrl = URL.createObjectURL(file);
+      photoPreview.src = previewUrl;
+      photoPreview.hidden = false;
+    });
+    backdrop.querySelector('form').addEventListener('submit', () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }, { once: true });
+    const roleSelect = backdrop.querySelector('#roletype');
+    const roleFields = backdrop.querySelector('#role-fields');
+    if (!roleSelect || !roleFields) throw new Error('Employee role controls could not be initialized.');
+    roleSelect.addEventListener('change', () => {
+      roleFields.replaceChildren();
+      roleFields.insertAdjacentHTML('afterbegin', employeeRoleFields(roleSelect.value));
     });
   });
 }
@@ -583,6 +944,7 @@ export async function renderPurchaseOrders(page) {
 }
 
 export async function renderAuditLogs(page) {
+  renderLoadingState(page, 'Loading audit logs…');
   const result = await loadList('/api/audit-logs');
   page.innerHTML = `
     <header class="page-head card">
@@ -590,9 +952,9 @@ export async function renderAuditLogs(page) {
     </header>
     <div id="notice"></div>
     <div id="table"></div>`;
-  showNotice(page.querySelector('#notice'), result.error);
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
   const items = Array.isArray(result.data) ? result.data : (result.data?.items || []);
-  renderTable(page.querySelector('#table'), {
+  if (!result.error) renderTable(page.querySelector('#table'), {
     columns: [
       { header: 'Time', key: 'timestamp', sortable: true },
       { header: 'User', key: 'username_or_email' },
@@ -605,6 +967,95 @@ export async function renderAuditLogs(page) {
     searchKey: 'action',
   });
 }
+
+const APPROVAL_ACTIONS = {
+  REQUISITION: {
+    permission: 'procurement:approve_req',
+    endpoint: '/api/approvals/requisition',
+    idField: 'requisition_id',
+  },
+  PO: {
+    permission: 'procurement:po_approve',
+    endpoint: '/api/approvals/purchase-order',
+    idField: 'po_id',
+  },
+  LEAVE: {
+    permission: 'hr:leave',
+    endpoint: '/api/approvals/leave',
+    idField: 'leave_id',
+  },
+  ADJUSTMENT: {
+    permission: 'inventory:approve_adjust',
+    endpoint: '/api/approvals/stock-adjustment',
+    idField: 'adjustment_id',
+  },
+};
+
+export async function renderApprovals(page) {
+  renderLoadingState(page, 'Loading pending approvals…');
+  const result = await loadList('/api/approvals');
+  page.innerHTML = `
+    <header class="page-head card">
+      <div><div class="kicker">${icons.shield} Workflow</div><h1>Pending Approvals</h1>
+        <p class="muted">Review requests your account is authorized to approve or reject.</p>
+      </div>
+    </header>
+    <div id="notice"></div>
+    <div id="table"></div>`;
+  showNotice(page.querySelector('#notice'), result.error, { onRetry: () => window.location.reload() });
+  if (result.error) return;
+
+  const approvals = Array.isArray(result.data) ? result.data : [];
+  renderTable(page.querySelector('#table'), {
+    columns: [
+      { header: 'Type', key: 'type', sortable: true },
+      { header: 'Request', key: 'description' },
+      { header: 'Requested By', key: 'requester', sortable: true },
+      { header: 'Submitted', key: 'created_at', sortable: true, cell: (item) => item.created_at ? new Date(item.created_at).toLocaleString() : '—' },
+      {
+        header: 'Decision',
+        key: 'id',
+        cell: (item) => {
+          const action = APPROVAL_ACTIONS[item.type];
+          if (!action || !can(action.permission)) return '<span class="muted">No action available</span>';
+          return `<div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" type="button" data-approval-type="${item.type}" data-approval-id="${item.id}" data-approval-action="APPROVE">Approve</button>
+            <button class="btn btn-outline btn-sm" type="button" data-approval-type="${item.type}" data-approval-id="${item.id}" data-approval-action="REJECT">Reject</button>
+          </div>`;
+        },
+      },
+    ],
+    data: approvals,
+    searchKey: 'description',
+  });
+
+  page.querySelector('#table').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-approval-action]');
+    if (!button) return;
+    const action = APPROVAL_ACTIONS[button.dataset.approvalType];
+    if (!action || !can(action.permission)) return;
+    if (button.dataset.approvalAction === 'REJECT' && !window.confirm('Reject this request?')) return;
+    button.disabled = true;
+    const buttons = button.parentElement.querySelectorAll('button');
+    buttons.forEach((item) => { item.disabled = true; });
+    try {
+      await apiRequest(action.endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          [action.idField]: Number(button.dataset.approvalId),
+          action: button.dataset.approvalAction,
+        }),
+      });
+      await renderApprovals(page);
+    } catch (error) {
+      showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to update this approval.');
+      buttons.forEach((item) => { item.disabled = false; });
+    }
+  });
+}
+
+export async function renderSettings(page) {
+  renderLoadingState(page, 'Loading system settings…');
   const employees = await loadList('/employees');
   const colors = {
     Cashier: 'background:#dbeafe;color:#1d4ed8',
@@ -614,32 +1065,192 @@ export async function renderAuditLogs(page) {
     'Branch Manager': 'background:#fee2e2;color:#b91c1c',
     Admin: 'background:#e2e8f0;color:#334155',
   };
+  const teamMembers = employees.data.map((member) => {
+    const fullName = escapeHtml(member.name || 'Unknown employee');
+    const initials = escapeHtml((member.name || 'U').trim().charAt(0).toUpperCase());
+    const avatar = member.profile_photo_url
+      ? `<img src="${escapeHtml(member.profile_photo_url)}" alt="">`
+      : `<span aria-hidden="true">${initials}</span>`;
+    return `<article class="settings-team-member">
+      <div class="settings-team-avatar">${avatar}</div>
+      <div class="settings-team-member-info">
+        <strong title="${fullName}">${fullName}</strong>
+        <span>Employee #${member.employeeid}</span>
+      </div>
+      <span class="badge settings-team-role" style="${colors[member.roletype] || ''}">${escapeHtml(member.roletype || 'Unassigned')}</span>
+    </article>`;
+  }).join('');
   page.innerHTML = `
     <header class="card">
       <div class="kicker">${icons.settings} System Preferences</div>
       <h1>Branch & Store Settings</h1>
       <p class="muted">Configure branch operations, team members, and role-based access control.</p>
     </header>
+    <div id="notice"></div>
     <div class="grid-2">
-      <div class="card">
-        <h2>Team Members</h2>
-        <div class="form-grid">
-          ${employees.data.length ? employees.data.map((m) => `<div class="team-row"><div><strong>${m.name}</strong><div class="muted">ID: ${m.employeeid}</div></div><span class="badge" style="${colors[m.roletype] || ''}">${m.roletype}</span></div>`).join('') : '<p class="muted">No team members yet</p>'}
+      <section class="card settings-panel settings-team-panel">
+        <div class="settings-panel-heading">
+          <div>
+            <h2>Team Members</h2>
+            <p class="muted">People with access to your workspace</p>
+          </div>
+          ${employees.error ? '' : `<span class="settings-member-count">${employees.data.length} ${employees.data.length === 1 ? 'member' : 'members'}</span>`}
         </div>
-      </div>
-      <div class="card">
-        <h2>System Status</h2>
-        <p class="page-head"><span>Auth Configured</span><span class="badge">JWT enabled</span></p>
-        <p class="page-head"><span>RLS Policies</span><span class="badge">Enabled</span></p>
-        <p class="muted">FastAPI validates the signed-in employee role before allowing access to MySQL-backed operations.</p>
-      </div>
+        <div class="settings-team-list">
+          ${employees.error ? '<p class="muted">Team data is unavailable until the connection recovers.</p>' : teamMembers || '<p class="muted">No team members yet.</p>'}
+        </div>
+      </section>
+      <section class="card settings-panel settings-status-panel">
+        <div class="settings-panel-heading">
+          <div>
+            <h2>System Status</h2>
+            <p class="muted">Security and access overview</p>
+          </div>
+          <span class="settings-status-indicator"><span></span>Access controls active</span>
+        </div>
+        <div class="settings-status-list">
+          <div class="settings-status-item">
+            <span class="settings-status-icon" aria-hidden="true">✓</span>
+            <div><strong>Authentication</strong><span>Secure sign-in is configured</span></div>
+            <span class="settings-status-value">JWT enabled</span>
+          </div>
+          <div class="settings-status-item">
+            <span class="settings-status-icon" aria-hidden="true">✓</span>
+            <div><strong>Authorization</strong><span>Role and permission checks are active</span></div>
+            <span class="settings-status-value">Protected</span>
+          </div>
+        </div>
+        <p class="settings-status-note">FastAPI verifies each signed-in employee's role and permissions before allowing access to protected operations.</p>
+      </section>
     </div>
-    <div class="card form-grid two">
-      <h2 style="grid-column:1/-1">Store Identity & Tax Details</h2>
-      ${field('store-name', 'Store Legal Name', 'placeholder="Configured in your business profile"')}
-      ${field('tin', 'URA Tax Identification Number (TIN)', 'placeholder="Configured in your business profile"')}
-      ${field('branch', 'Active Workspace Branch', 'placeholder="Select a live branch"')}
-      ${field('currency', 'Operating Currency', 'value="UGX (Ugandan Shilling)" disabled')}
+    <div class="card">
+      <h2>Business Profile</h2>
+      <p class="muted">Business identity and tax settings are not currently editable in this interface. The system reports all monetary values in UGX.</p>
     </div>
   `;
+  showNotice(page.querySelector('#notice'), employees.error, { onRetry: () => window.location.reload() });
+}
+
+const ORGANIZATION_PAGES = {
+  branches: {
+    title: 'Company Branches',
+    endpoint: '/api/branches',
+    createEndpoint: '/branches',
+    columns: [
+      { header: 'Branch ID', key: 'branchid', sortable: true },
+      { header: 'Branch', key: 'branchname', sortable: true },
+      { header: 'Location', key: 'location' },
+      { header: 'Contact Number', key: 'contactnumber' },
+    ],
+    fields: () => field('branchname', 'Branch name', 'required')
+      + field('location', 'Location', 'required')
+      + field('contactnumber', 'Contact number', 'type="tel"'),
+    payload: (form) => ({
+      branchname: form.get('branchname'),
+      location: form.get('location'),
+      contactnumber: form.get('contactnumber') || null,
+    }),
+  },
+  departments: {
+    title: 'Departments',
+    endpoint: '/api/departments',
+    createEndpoint: '/api/departments',
+    columns: [
+      { header: 'Department ID', key: 'departmentid', sortable: true },
+      { header: 'Department', key: 'departmentname', sortable: true },
+      { header: 'Branch', key: 'branch_name' },
+    ],
+    fields: (branches) => field('departmentname', 'Department name', 'required')
+      + selectField('branchid', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true),
+    payload: (form) => ({
+      departmentname: form.get('departmentname'),
+      branchid: Number(form.get('branchid')),
+    }),
+  },
+  warehouses: {
+    title: 'Warehouses',
+    endpoint: '/api/warehouses',
+    createEndpoint: '/api/warehouses',
+    columns: [
+      { header: 'Warehouse ID', key: 'warehouse_id', sortable: true },
+      { header: 'Warehouse', key: 'warehouse_name', sortable: true },
+      { header: 'Branch', key: 'branch_name' },
+      { header: 'Location', key: 'location' },
+      { header: 'Status', key: 'is_active', cell: (warehouse) => warehouse.is_active ? 'Active' : 'Inactive' },
+    ],
+    fields: (branches) => field('warehouse_name', 'Warehouse name', 'required')
+      + selectField('branch_id', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true)
+      + field('location', 'Location'),
+    payload: (form) => ({
+      warehouse_name: form.get('warehouse_name'),
+      branch_id: Number(form.get('branch_id')),
+      location: form.get('location') || null,
+      is_active: true,
+    }),
+  },
+};
+
+export async function renderOrganization(page, pageName) {
+  const config = ORGANIZATION_PAGES[pageName];
+  if (!config) {
+    page.innerHTML = '<div class="card" role="alert">Organization page not found.</div>';
+    return;
+  }
+
+  renderLoadingState(page, `Loading ${config.title.toLowerCase()}…`);
+  const [records, branches] = await Promise.all([
+    loadList(config.endpoint),
+    pageName === 'branches' ? Promise.resolve({ data: [] }) : loadList('/api/branches'),
+  ]);
+
+  page.innerHTML = `
+    <header class="page-head card">
+      <div>
+        <div class="kicker">${icons.settings} Organisation setup</div>
+        <h1>${config.title}</h1>
+        <p class="muted">Manage company structure and branch locations.</p>
+      </div>
+      ${can('admin:users') ? `<button class="btn btn-primary" id="add-btn">${icons.plus} Add ${pageName === 'branches' ? 'Branch' : pageName === 'departments' ? 'Department' : 'Warehouse'}</button>` : ''}
+    </header>
+    <div id="notice"></div>
+    <div id="table"></div>
+  `;
+
+  const loadError = records.error || branches.error;
+  showNotice(page.querySelector('#notice'), loadError, { onRetry: () => window.location.reload() });
+  if (!loadError) {
+    const branchNames = new Map(branches.data.map((branch) => [branch.branchid, branch.branchname]));
+    const rows = records.data.map((record) => ({
+      ...record,
+      branch_name: record.branch_name || branchNames.get(record.branchid ?? record.branch_id) || 'Unknown branch',
+    }));
+    renderTable(page.querySelector('#table'), {
+      columns: config.columns,
+      data: rows,
+      searchKey: pageName === 'branches' ? 'branchname' : pageName === 'departments' ? 'departmentname' : 'warehouse_name',
+    });
+  }
+
+  const addButton = page.querySelector('#add-btn');
+  if (!addButton) return;
+  if (loadError) {
+    addButton.disabled = true;
+    addButton.title = 'Required organization data could not be loaded. Retry before adding a record.';
+    return;
+  }
+  addButton.addEventListener('click', () => {
+    openDialog({
+      title: `Add ${pageName === 'branches' ? 'branch' : pageName === 'departments' ? 'department' : 'warehouse'}`,
+      description: `Create a ${pageName === 'branches' ? 'company branch' : pageName === 'departments' ? 'department assigned to a branch' : 'warehouse assigned to a branch'}.`,
+      bodyHtml: config.fields(branches.data),
+      submitLabel: 'Save',
+      onSubmit: async (form) => {
+        await apiRequest(config.createEndpoint, {
+          method: 'POST',
+          body: JSON.stringify(config.payload(form)),
+        });
+        window.location.reload();
+      },
+    });
+  });
 }

@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Set
 import bcrypt
@@ -32,8 +33,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 # Fallback permission mapping for default roles if not yet in database
 DEFAULT_ROLE_PERMS = {
-    "Admin": ["*"],
-    "System Administrator": ["*"],
+    "Admin": ["admin:users", "admin:audit"],
+    "System Administrator": ["admin:users", "admin:audit"],
+    "Owner / Executive": [
+        "reports:view", "sales:view", "inventory:view", "finance:view",
+        "procurement:view", "hr:view", "approvals:approve",
+    ],
     "Branch Manager": [
         "sales:view", "sales:approve", "inventory:view", "inventory:approve_adjust",
         "procurement:requisition", "procurement:approve_req", "procurement:po_approve",
@@ -109,6 +114,20 @@ def get_password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
+
+def generate_temporary_password() -> str:
+    return secrets.token_urlsafe(18)
+
+
+def temporary_password_expiry(now: Optional[datetime] = None) -> datetime:
+    try:
+        hours = int(os.getenv("TEMP_PASSWORD_EXPIRY_HOURS", "24"))
+    except ValueError as error:
+        raise RuntimeError("TEMP_PASSWORD_EXPIRY_HOURS must be a whole number.") from error
+    if not 1 <= hours <= 168:
+        raise RuntimeError("TEMP_PASSWORD_EXPIRY_HOURS must be between 1 and 168.")
+    return (now or datetime.utcnow()) + timedelta(hours=hours)
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -140,6 +159,8 @@ def get_current_user(
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") == "initial-password-change":
+            raise credentials_exception
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
@@ -150,9 +171,47 @@ def get_current_user(
     if (
         user is None
         or not user.is_active
+        or user.must_change_password
         or payload.get("tv", 0) != (user.token_version or 0)
     ):
         raise credentials_exception
+    return user
+
+
+def get_initial_password_change_user(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Resolve the short-lived token used only by the initial password-change endpoint."""
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin not in ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="Untrusted request origin.")
+    token = request.cookies.get("hw_access_token")
+    if not token:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        raise credentials_exception
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as error:
+        raise HTTPException(status_code=401, detail="Could not validate credentials") from error
+    if payload.get("purpose") != "initial-password-change" or not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+    user = db.query(models.Employee).filter(models.Employee.email == payload["sub"]).first()
+    if (
+        user is None
+        or not user.is_active
+        or not user.must_change_password
+        or payload.get("tv", 0) != (user.token_version or 0)
+        or (
+            user.temporary_password_expires_at is not None
+            and user.temporary_password_expires_at <= datetime.utcnow()
+        )
+    ):
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
     return user
 
 def get_user_roles(db: Session, employee: models.Employee) -> List[str]:
@@ -161,25 +220,73 @@ def get_user_roles(db: Session, employee: models.Employee) -> List[str]:
         models.UserRole, models.UserRole.role_id == models.Role.role_id
     ).filter(models.UserRole.user_id == employee.employeeid).all()
     roles = [r[0] for r in assigned_roles]
+    roles.extend(role.name for role in employee.erp_roles if role.name not in roles)
     if employee.roletype.value not in roles:
         roles.append(employee.roletype.value)
     return roles
 
+
+def has_any_role(employee: models.Employee, *roles: models.RoleType) -> bool:
+    """Check a primary or explicitly assigned operational role without Admin bypass."""
+    if employee.roletype != models.RoleType.ADMIN and employee.roletype in roles:
+        return True
+    if employee.roletype == models.RoleType.ADMIN and roles == (models.RoleType.ADMIN,):
+        return True
+    assigned_names = {role.name for role in employee.erp_roles}
+    assigned_names.update(
+        assignment.role.role_name
+        for assignment in employee.user_roles
+        if assignment.role is not None
+    )
+    role_aliases = {
+        models.RoleType.ADMIN: {"System Administrator"},
+        models.RoleType.CASHIER: {"Cashier", "Sales Manager", "Sales Clerk"},
+        models.RoleType.PROCUREMENT_OFFICER: {"Procurement Officer", "Procurement Manager", "Storekeeper", "Warehouse Supervisor", "Inventory Manager"},
+        models.RoleType.ACCOUNTANT: {"Accountant", "Finance Clerk", "Finance Manager"},
+        models.RoleType.HR_STAFF: {"HR Staff", "HR Officer", "HR Manager"},
+        models.RoleType.BRANCH_MANAGER: {"Branch Manager", "General Manager", "Owner / Executive"},
+    }
+    permitted_names = set().union(*(role_aliases.get(role, set()) for role in roles if role != models.RoleType.ADMIN))
+    return bool(assigned_names & permitted_names)
+
+
 def get_user_permissions(db: Session, employee: models.Employee) -> List[str]:
     """Retrieve permissions for an employee based on user roles and primary roletype."""
-    if employee.roletype == models.RoleType.ADMIN:
-        return ["*"]
-
-    perm_codes: Set[str] = set()
+    perm_codes: Set[str] = (
+        {"admin:users", "admin:audit"}
+        if employee.roletype == models.RoleType.ADMIN
+        else set()
+    )
+    permission_aliases = {
+        "sales:read": "sales:view",
+        "inventory:read": "inventory:view",
+        "procurement:read": "procurement:view",
+        "finance:read": "finance:view",
+        "hr:read": "hr:view",
+        "reports:read": "reports:view",
+    }
 
     # 1. Fetch from database role_permissions
     db_perms = db.query(models.Permission.code).join(
         models.RolePermission, models.RolePermission.permission_id == models.Permission.permission_id
     ).join(
         models.UserRole, models.UserRole.role_id == models.RolePermission.role_id
-    ).filter(models.UserRole.user_id == employee.employeeid).all()
+    ).filter(models.UserRole.user_id == employee.employeeid)
+    if employee.roletype == models.RoleType.ADMIN:
+        db_perms = db_perms.join(models.Role, models.Role.role_id == models.UserRole.role_id).filter(
+            models.Role.role_name.notin_(("Admin", "System Administrator"))
+        )
+    db_perms = db_perms.all()
     for p in db_perms:
-        perm_codes.add(p[0])
+        if employee.roletype != models.RoleType.ADMIN or p[0] != "*":
+            perm_codes.add(permission_aliases.get(p[0], p[0]))
+
+    for role in employee.erp_roles:
+        if employee.roletype == models.RoleType.ADMIN and role.name == "System Administrator":
+            continue
+        for permission in role.permissions:
+            if permission.code != "*":
+                perm_codes.add(permission_aliases.get(permission.code, permission.code))
 
     # 2. Add fallback permissions based on roles
     for role_name in get_user_roles(db, employee):
@@ -190,7 +297,5 @@ def get_user_permissions(db: Session, employee: models.Employee) -> List[str]:
 
 def has_permission(db: Session, employee: models.Employee, required_perm: str) -> bool:
     """Check if an employee possesses a required permission code."""
-    if employee.roletype == models.RoleType.ADMIN:
-        return True
     perms = get_user_permissions(db, employee)
     return "*" in perms or required_perm in perms

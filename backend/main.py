@@ -1,5 +1,8 @@
 import os
+import secrets
+import uuid
 from typing import Optional
+from datetime import timedelta, datetime
 from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, Query, Header, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +13,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from jose import JWTError, jwt
 from starlette.background import BackgroundTasks as StarletteBackgroundTasks
-from datetime import timedelta, datetime
 from decimal import Decimal
 
 import models
@@ -19,7 +21,8 @@ import auth
 import erp_service
 from database import engine, get_db
 from audit import request_ip, write_audit_log
-from api_router import api_router
+from api_router import api_router, employee_profile_photo_url
+from bootstrap_admin import ensure_configured_admin
 
 app = FastAPI(
     title="Hardware World API",
@@ -96,6 +99,8 @@ def audit_identity_from_request(request: Request):
 async def audit_protected_api_access(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
+    if path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     identity = audit_identity_from_request(request)
     if (
         identity
@@ -130,18 +135,29 @@ def get_public_departments(db: Session = Depends(get_db)):
     departments = db.query(models.Department).order_by(models.Department.departmentname).all()
     return [{"departmentid": d.departmentid, "departmentname": d.departmentname, "branchid": d.branchid} for d in departments]
 
-def require_role(current_user: models.Employee, *roles: models.RoleType):
+def require_role(current_user: models.Employee, *roles: models.RoleType, allow_system_admin: bool = False):
     role_aliases = {
         models.RoleType.ADMIN: {"System Administrator"},
         models.RoleType.BRANCH_MANAGER: {"Branch Manager", "General Manager", "Owner / Executive"},
         models.RoleType.CASHIER: {"Cashier", "Sales Manager", "Sales Clerk"},
         models.RoleType.PROCUREMENT_OFFICER: {"Procurement Officer", "Procurement Manager", "Storekeeper", "Warehouse Supervisor", "Inventory Manager"},
-        models.RoleType.ACCOUNTANT: {"Accountant", "Finance Clerk", "Finance Manager", "Owner / Executive"},
+        models.RoleType.ACCOUNTANT: {"Accountant", "Finance Clerk", "Finance Manager"},
         models.RoleType.HR_STAFF: {"HR Officer", "HR Manager"},
     }
-    permitted_names = set().union(*(role_aliases.get(role, set()) for role in roles))
+    permission_roles = tuple(role for role in roles if role != models.RoleType.ADMIN)
+    permitted_names = set().union(*(role_aliases.get(role, set()) for role in permission_roles))
     assigned_names = {role.name for role in current_user.erp_roles}
-    if current_user.roletype not in roles and not (assigned_names & permitted_names):
+    assigned_names.update(
+        assignment.role.role_name
+        for assignment in current_user.user_roles
+        if assignment.role is not None
+    )
+    if current_user.roletype == models.RoleType.ADMIN:
+        if allow_system_admin or roles == (models.RoleType.ADMIN,):
+            return
+        if not (assigned_names & permitted_names):
+            raise HTTPException(status_code=403, detail="Not authorized for this operation")
+    elif current_user.roletype not in roles and not (assigned_names & permitted_names):
         raise HTTPException(status_code=403, detail="Not authorized for this operation")
 
 def employee_name(db: Session, employeeid: int | None):
@@ -152,12 +168,14 @@ def branch_name(db: Session, branchid: int | None):
     branch = db.query(models.Branch).filter(models.Branch.branchid == branchid).first() if branchid else None
     return branch.branchname if branch else "Unknown branch"
 
-def user_profile(current_user: models.Employee):
+def user_profile(current_user: models.Employee, db: Session):
     roles = [r.name for r in current_user.erp_roles] or [current_user.roletype.value]
-    permissions = sorted({p.code for role in current_user.erp_roles for p in role.permissions})
+    permissions = auth.get_user_permissions(db, current_user)
     return {
         "employeeid": current_user.employeeid, "name": current_user.name,
-        "email": current_user.email, "roletype": current_user.roletype.value,
+        "email": current_user.email,
+        "profile_photo_url": employee_profile_photo_url(current_user),
+        "roletype": current_user.roletype.value,
         "departmentid": current_user.departmentid,
         "department_name": current_user.department.departmentname if current_user.department else None,
         "branchid": current_user.branchid,
@@ -182,9 +200,36 @@ def assign_primary_erp_role(db: Session, employee: models.Employee):
     if role not in employee.erp_roles:
         employee.erp_roles.append(role)
 
+
+def record_login_failure(db: Session, user: Optional[models.Employee], username: str, request: Request, reason: str):
+    now = datetime.utcnow()
+    if user and user.is_active:
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        user.last_failed_login_at = now
+        if user.failed_login_attempts >= 5:
+            user.locked_until = now + timedelta(minutes=15)
+            db.add(models.PasswordEvent(
+                user_id=user.employeeid,
+                event_type="ACCOUNT_LOCKED",
+                timestamp=now,
+                ip_address=request_ip(request),
+                reason="Failed sign-in limit reached",
+            ))
+    db.add(models.AuditLog(
+        user_id=user.employeeid if user else None,
+        username_or_email=(user.email or user.name) if user else (username or None),
+        action="LOGIN_FAILED",
+        module="authentication",
+        details=reason,
+        ip_address=request_ip(request),
+    ))
+    db.commit()
+
+
 @app.post("/register", response_model=schemas.UserResponse, tags=["authentication"])
 def register_user(
     user: schemas.UserCreate, 
+    request: Request,
     db: Session = Depends(get_db), 
     current_user: models.Employee = Depends(auth.get_current_user)
 ):
@@ -201,6 +246,8 @@ def register_user(
         nin=user.nin,
         email=user.email,
         hashed_password=hashed_password,
+        must_change_password=True,
+        temporary_password_expires_at=auth.temporary_password_expiry(),
         phone=user.phone,
         datehired=user.datehired or datetime.utcnow().date(),
         salary=user.salary,
@@ -212,6 +259,23 @@ def register_user(
     db.add(new_user)
     db.flush()
     assign_primary_erp_role(db, new_user)
+    db.add(models.PasswordEvent(
+        user_id=new_user.employeeid,
+        event_type="INITIAL_PASSWORD_CREATED",
+        initiated_by_user_id=current_user.employeeid,
+        ip_address=request_ip(request),
+        reason="Temporary initial password issued by administrator",
+    ))
+    db.add(models.AuditLog(
+        user_id=current_user.employeeid,
+        username_or_email=current_user.email or current_user.name,
+        action="USER_ACCOUNT_CREATED",
+        module="admin",
+        entity_type="employee",
+        entity_id=new_user.employeeid,
+        details=f"Created sign-in account for employee #{new_user.employeeid}; temporary password issued",
+        ip_address=request_ip(request),
+    ))
     db.commit()
     db.refresh(new_user)
     return new_user
@@ -241,7 +305,7 @@ async def login_for_access_token(
         try:
             body = await request.json()
             username = str(body.get("username", "")).strip()
-            password = str(body.get("password", "")).strip()
+            password = str(body.get("password", ""))
             selected_dept = body.get("department")
             login_type = str(body.get("login_type", "staff")).strip().lower()
         except Exception:
@@ -249,7 +313,7 @@ async def login_for_access_token(
     else:
         form = await request.form()
         username = str(form.get("username", "")).strip()
-        password = str(form.get("password", "")).strip()
+        password = str(form.get("password", ""))
         selected_dept = form.get("department")
         login_type = str(form.get("login_type", "staff")).strip().lower()
 
@@ -257,28 +321,56 @@ async def login_for_access_token(
         write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Login attempt missing username or password", ip_address=request_ip(request))
         raise HTTPException(status_code=400, detail="Username/Email and Password are required")
 
-    # Lookup user by Email OR Full Name (case-insensitive)
-    user = db.query(models.Employee).filter(
-        or_(
-            func.lower(models.Employee.email) == username.lower(),
-            func.lower(models.Employee.name) == username.lower()
-        )
-    ).first()
+    if login_type not in {"admin", "staff"}:
+        raise HTTPException(status_code=400, detail="Login type must be 'admin' or 'staff'.")
 
-    if not user or not user.hashed_password or not auth.verify_password(password, user.hashed_password):
-        write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Invalid username/email or password", ip_address=request_ip(request))
+    admin_name = os.getenv("ADMIN_NAME", "").strip()
+    admin_email = os.getenv("ADMIN_EMAIL", "").strip()
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    configured_usernames = {value.lower() for value in (admin_name, admin_email) if value}
+    is_configured_admin_username = username.lower() in configured_usernames
+
+    if login_type == "admin" or is_configured_admin_username:
+        if (
+            not is_configured_admin_username
+            or not admin_password
+            or not secrets.compare_digest(password, admin_password)
+        ):
+            write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Invalid configured administrator credentials", ip_address=request_ip(request))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect administrator username/email or password.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        login_type = "admin"
+        user = ensure_configured_admin(db)
+        db.commit()
+    else:
+        # Lookup user by Email OR Full Name (case-insensitive)
+        user = db.query(models.Employee).filter(
+            or_(
+                func.lower(models.Employee.email) == username.lower(),
+                func.lower(models.Employee.name) == username.lower()
+            )
+        ).first()
+
+    if not user or not user.hashed_password or (
+        login_type == "staff" and not auth.verify_password(password, user.hashed_password)
+    ):
+        record_login_failure(db, user, username, request, "Invalid sign-in details")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password.",
+            detail="Invalid sign-in details or department selection.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # SECURITY: Reject disabled accounts
-    if not getattr(user, "is_active", True):
-        write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="LOGIN_BLOCKED", details="Login attempt on deactivated account", ip_address=request_ip(request))
+    now = datetime.utcnow()
+    if not user.is_active or (user.locked_until and user.locked_until > now):
+        record_login_failure(db, user, username, request, "Login blocked by account status or temporary lock")
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated. Contact your system administrator.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid sign-in details or department selection.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     # 1. RBAC (Role-Based Access Control) Policy Check:
@@ -293,21 +385,76 @@ async def login_for_access_token(
     # 2. ABAC (Attribute-Based Access Control) Policy Check:
     # If logging in as staff, check department match
     if login_type == "staff":
-        if user.roletype != models.RoleType.ADMIN and selected_dept:
+        if user.roletype != models.RoleType.ADMIN:
+            if not selected_dept:
+                record_login_failure(db, user, username, request, "Staff login did not include a department selection")
+                raise HTTPException(status_code=401, detail="Invalid sign-in details or department selection.")
             user_dept = user.department.departmentname if user.department else ""
             # Match against department name or department ID
             is_name_match = user_dept.strip().lower() == str(selected_dept).strip().lower()
             is_id_match = str(user.departmentid) == str(selected_dept).strip()
 
             if not (is_name_match or is_id_match):
-                write_audit_log(user_id=user.employeeid, username_or_email=user.email or user.name, action="ACCESS_DENIED", details="Staff login attempted with a different department", ip_address=request_ip(request))
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Access Denied (ABAC): Department mismatch. Your user profile is assigned to '{user_dept}', but you selected '{selected_dept}'. Staff members can only log into their assigned department dashboard."
-                )
+                record_login_failure(db, user, username, request, "Staff login attempted with a different department")
+                raise HTTPException(status_code=401, detail="Invalid sign-in details or department selection.")
+
+    if user.must_change_password and user.temporary_password_expires_at and user.temporary_password_expires_at <= now:
+        db.add(models.PasswordEvent(
+            user_id=user.employeeid,
+            event_type="TEMP_PASSWORD_EXPIRED",
+            timestamp=now,
+            ip_address=request_ip(request),
+            reason="Temporary password expired before first use",
+        ))
+        db.add(models.AuditLog(
+            user_id=user.employeeid,
+            username_or_email=user.email or user.name,
+            action="TEMP_PASSWORD_EXPIRED",
+            module="authentication",
+            details="Temporary sign-in password expired",
+            ip_address=request_ip(request),
+        ))
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid sign-in details or department selection.")
 
     dept_name = user.department.departmentname if user.department else "General"
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    user.failed_login_attempts = 0
+    user.last_failed_login_at = None
+    user.locked_until = None
+    user.last_login_at = now
+    if user.must_change_password:
+        access_token = auth.create_access_token(
+            data={
+                "sub": user.email,
+                "purpose": "initial-password-change",
+                "tv": user.token_version or 0,
+            },
+            expires_delta=timedelta(minutes=15),
+        )
+        response.set_cookie(
+            key="hw_access_token",
+            value=access_token,
+            max_age=15 * 60,
+            path="/",
+            secure=auth.COOKIE_SECURE,
+            httponly=True,
+            samesite="lax",
+        )
+        db.add(models.AuditLog(
+            user_id=user.employeeid,
+            username_or_email=user.email or user.name,
+            action="LOGIN_SUCCESS",
+            module="authentication",
+            details="Temporary password accepted; password change required",
+            ip_address=request_ip(request),
+        ))
+        db.commit()
+        return {
+            "requires_password_change": True,
+            "next_route": "change-password.html",
+        }
+
+    db.commit()
     access_token = auth.create_access_token(
         data={
             "sub": user.email, 
@@ -318,13 +465,13 @@ async def login_for_access_token(
             "branchid": user.branchid,
             "tv": user.token_version or 0,
         }, 
-        expires_delta=access_token_expires
+        expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     background_tasks.add_task(
         write_audit_log,
         user_id=user.employeeid,
         username_or_email=user.email or user.name,
-        action="LOGIN",
+        action="LOGIN_SUCCESS",
         details=f"Successful {login_type} portal login",
         ip_address=request_ip(request),
     )
@@ -388,7 +535,7 @@ def record_page_view(
 
 @app.get("/users/me", tags=["authentication"])
 def read_users_me(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    return user_profile(current_user)
+    return user_profile(current_user, db)
 
 
 @app.get("/audit-logs", response_model=schemas.AuditLogPage)
@@ -470,7 +617,7 @@ def get_products(db: Session = Depends(get_db), current_user: models.Employee = 
 @app.get("/api/v1/inventory/balances", tags=["catalogue"])
 def get_inventory_balances(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
     query = db.query(models.ERPStockBalance).filter_by(branch_id=current_user.branchid)
-    if current_user.roletype not in (models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.BRANCH_MANAGER):
+    if not auth.has_any_role(current_user, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.BRANCH_MANAGER):
         require_role(current_user, models.RoleType.CASHIER, models.RoleType.ACCOUNTANT, models.RoleType.HR_STAFF)
     return [{"itemid": b.itemid, "branch_id": b.branch_id, "warehouse_id": b.warehouse_id, "quantity": str(b.quantity), "updated_at": b.updated_at} for b in query.order_by(models.ERPStockBalance.itemid).all()]
 
@@ -492,19 +639,105 @@ def create_supplier(payload: schemas.SupplierCreate, db: Session = Depends(get_d
 
 @app.get("/employees", tags=["organisation"])
 def get_employees(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
+    require_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT, allow_system_admin=True)
     employees = db.query(models.Employee).order_by(models.Employee.name).all()
-    return [{"employeeid": e.employeeid, "name": e.name, "nin": e.nin, "phone": e.phone, "datehired": e.datehired, "salary": float(e.salary or 0), "roletype": e.roletype.value, "departmentid": e.departmentid, "department_name": e.department.departmentname if e.department else "Unknown department", "branchid": e.branchid, "branch_name": branch_name(db, e.branchid), "supervisorid": e.supervisorid, "supervisor_name": employee_name(db, e.supervisorid)} for e in employees]
+    return [{
+        "employeeid": e.employeeid,
+        "name": e.name,
+        "profile_photo_url": employee_profile_photo_url(e),
+        "email": e.email,
+        "nin": e.nin,
+        "phone": e.phone,
+        "datehired": e.datehired,
+        "salary": float(e.salary or 0) if (
+            auth.has_any_role(current_user, models.RoleType.HR_STAFF, models.RoleType.ACCOUNTANT)
+            or auth.has_permission(db, current_user, "payroll:view")
+        ) else None,
+        "roletype": e.roletype.value,
+        "departmentid": e.departmentid,
+        "department_name": e.department.departmentname if e.department else "Unknown department",
+        "branchid": e.branchid,
+        "branch_name": branch_name(db, e.branchid),
+        "supervisorid": e.supervisorid,
+        "supervisor_name": employee_name(db, e.supervisorid),
+        "account_status": (
+            "INACTIVE" if not e.is_active
+            else "LOCKED" if e.locked_until and e.locked_until > datetime.utcnow()
+            else "PENDING_ACTIVATION" if not e.hashed_password
+            else "PASSWORD_CHANGE_REQUIRED" if e.must_change_password
+            else "ACTIVE"
+        ),
+        "is_locked": bool(e.is_active and e.locked_until and e.locked_until > datetime.utcnow()),
+    } for e in employees]
 
 @app.post("/employees", tags=["organisation"])
-def create_employee(payload: schemas.EmployeeCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF)
-    employee = models.Employee(name=payload.name, nin=payload.nin, email=payload.email, hashed_password=auth.get_password_hash(payload.password) if payload.password else None, phone=payload.phone, datehired=payload.datehired, salary=payload.salary, departmentid=payload.departmentid, branchid=payload.branchid, supervisorid=payload.supervisorid, roletype=payload.roletype)
+def create_employee(payload: schemas.EmployeeCreate, request: Request, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    require_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF, allow_system_admin=True)
+    if payload.email and db.query(models.Employee).filter(func.lower(models.Employee.email) == payload.email.lower()).first():
+        raise HTTPException(status_code=409, detail="An employee account already uses this email.")
+    if current_user.roletype != models.RoleType.ADMIN and payload.password:
+        raise HTTPException(status_code=403, detail="Only a System Administrator can issue employee passwords.")
+    temporary_password = None
+    expires_at = None
+    if current_user.roletype == models.RoleType.ADMIN:
+        if not payload.email:
+            raise HTTPException(status_code=422, detail="An email address is required for a sign-in account.")
+        temporary_password = payload.password or auth.generate_temporary_password()
+        expires_at = auth.temporary_password_expiry()
+    employee = models.Employee(
+        name=payload.name,
+        nin=payload.nin,
+        email=payload.email,
+        hashed_password=auth.get_password_hash(temporary_password) if temporary_password else None,
+        must_change_password=temporary_password is not None,
+        temporary_password_expires_at=expires_at,
+        phone=payload.phone,
+        datehired=payload.datehired,
+        salary=payload.salary,
+        departmentid=payload.departmentid,
+        branchid=payload.branchid,
+        supervisorid=payload.supervisorid,
+        roletype=payload.roletype,
+    )
     db.add(employee); db.flush()
     assign_primary_erp_role(db, employee)
+    if payload.roletype == models.RoleType.BRANCH_MANAGER and payload.managementlevel == "Owner / Executive":
+        executive_role = db.query(models.ERPRole).filter_by(name="Owner / Executive").first()
+        if not executive_role:
+            executive_role = models.ERPRole(name="Owner / Executive")
+            db.add(executive_role)
+            db.flush()
+        if executive_role not in employee.erp_roles:
+            employee.erp_roles.append(executive_role)
     subtype = {models.RoleType.CASHIER: models.Cashier(employeeid=employee.employeeid, pos_terminalid=payload.pos_terminalid or "unassigned"), models.RoleType.PROCUREMENT_OFFICER: models.ProcurementOfficer(employeeid=employee.employeeid, approvallimit=payload.approvallimit or 0), models.RoleType.ACCOUNTANT: models.Accountant(employeeid=employee.employeeid, certificationnumber=payload.certificationnumber), models.RoleType.HR_STAFF: models.HRStaff(employeeid=employee.employeeid, hr_role=payload.hr_role or "HR"), models.RoleType.BRANCH_MANAGER: models.BranchManager(employeeid=employee.employeeid, managementlevel=payload.managementlevel)}.get(payload.roletype)
     if subtype: db.add(subtype)
-    db.commit(); db.refresh(employee); return {"employeeid": employee.employeeid, "name": employee.name}
+    if temporary_password:
+        db.add(models.PasswordEvent(
+            user_id=employee.employeeid,
+            event_type="INITIAL_PASSWORD_CREATED",
+            initiated_by_user_id=current_user.employeeid,
+            ip_address=request_ip(request),
+            reason="Temporary initial password issued by administrator",
+        ))
+        db.add(models.AuditLog(
+            user_id=current_user.employeeid,
+            username_or_email=current_user.email or current_user.name,
+            action="USER_ACCOUNT_CREATED",
+            module="admin",
+            entity_type="employee",
+            entity_id=employee.employeeid,
+            details=f"Created sign-in account for employee #{employee.employeeid}; temporary password issued",
+            ip_address=request_ip(request),
+        ))
+    db.commit(); db.refresh(employee)
+    result = {"employeeid": employee.employeeid, "name": employee.name}
+    if temporary_password:
+        result.update({
+            "temporary_password": temporary_password,
+            "temporary_password_expires_at": expires_at.isoformat(),
+            "must_change_password": True,
+        })
+    return result
 
 @app.get("/purchase-orders", tags=["operations"])
 @app.get("/api/v1/procurement/purchase-orders", tags=["operations"])
@@ -751,6 +984,8 @@ def create_payroll(payload: schemas.PayrollCreate, db: Session = Depends(get_db)
 @app.get("/sales", tags=["operations"])
 @app.get("/api/v1/sales", tags=["operations"])
 def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
+    if not auth.has_permission(db, current_user, "sales:view"):
+        raise HTTPException(status_code=403, detail="Sales view permission required.")
     query = db.query(models.Sale).filter(models.Sale.status == "COMPLETED")
     if current_user.roletype == models.RoleType.CASHIER:
         query = query.filter(models.Sale.employeeid == current_user.employeeid)

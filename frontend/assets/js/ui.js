@@ -8,11 +8,35 @@ export function el(html) {
   return wrap.firstElementChild;
 }
 
-export function showNotice(target, error) {
+export function showNotice(target, error, { onRetry } = {}) {
   if (!target) return;
-  target.innerHTML = error
-    ? `<div class="notice error">${icons.alert}<span>Couldn't load this data: ${escapeHtml(error)}</span></div>`
-    : '';
+  target.replaceChildren();
+  if (!error) return;
+
+  const notice = document.createElement('div');
+  notice.className = 'notice error';
+  notice.setAttribute('role', 'alert');
+  notice.innerHTML = `<span class="notice-icon">${icons.alert}</span><span class="notice-message">Couldn't load this data: ${escapeHtml(error)}</span>`;
+  if (onRetry) {
+    const retry = document.createElement('button');
+    retry.className = 'btn btn-outline btn-sm notice-retry';
+    retry.type = 'button';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', onRetry);
+    notice.append(retry);
+  }
+  target.append(notice);
+}
+
+export function renderLoadingState(target, label = 'Loading data') {
+  if (!target) return;
+  target.innerHTML = `
+    <div class="loading-state" role="status" aria-live="polite">
+      <span>${escapeHtml(label)}</span>
+      <div class="loading-bar" aria-hidden="true"></div>
+      <div class="loading-bar loading-bar-short" aria-hidden="true"></div>
+    </div>
+  `;
 }
 
 export function escapeHtml(value) {
@@ -61,7 +85,7 @@ export function renderTable(container, { columns, data, searchKey }) {
             ${
               slice.length
                 ? slice.map((row) => `<tr>${columns.map((col) => `<td>${col.cell ? col.cell(row) : escapeHtml(row[col.key])}</td>`).join('')}</tr>`).join('')
-                : `<tr><td colspan="${columns.length}">No records match your filter criteria.</td></tr>`
+                : `<tr><td colspan="${columns.length}" class="table-empty">${rows.length ? 'No records match your filter criteria.' : 'No records yet.'}</td></tr>`
             }
           </tbody>
         </table>
@@ -69,9 +93,9 @@ export function renderTable(container, { columns, data, searchKey }) {
       <div class="pager">
         <div>Showing <strong>${start}</strong> to <strong>${end}</strong> of <strong>${rows.length}</strong> entries</div>
         <div>
-          <button class="btn btn-outline" data-prev>Prev</button>
+          <button class="btn btn-primary" data-prev>Prev</button>
           <span>Page ${page} of ${totalPages}</span>
-          <button class="btn btn-outline" data-next>Next</button>
+          <button class="btn btn-primary" data-next>Next</button>
         </div>
       </div>
     `;
@@ -111,11 +135,18 @@ export function renderTable(container, { columns, data, searchKey }) {
 }
 
 export function openDialog({ title, description, bodyHtml, submitLabel, onSubmit }) {
+  const currentDialog = document.querySelector('.dialog-backdrop.open');
+  if (currentDialog) {
+    currentDialog.querySelector('.dialog')?.focus();
+    return currentDialog;
+  }
+
+  const previouslyFocused = document.activeElement;
   const backdrop = el(`
     <div class="dialog-backdrop open">
-      <div class="dialog" role="dialog" aria-modal="true">
-        <h2>${escapeHtml(title)}</h2>
-        <p class="muted">${escapeHtml(description)}</p>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description" tabindex="-1">
+        <h2 id="dialog-title">${escapeHtml(title)}</h2>
+        <p class="muted" id="dialog-description">${escapeHtml(description)}</p>
         <form>
           <div class="form-grid">${bodyHtml}</div>
           <p class="notice error hidden" data-error></p>
@@ -127,24 +158,42 @@ export function openDialog({ title, description, bodyHtml, submitLabel, onSubmit
       </div>
     </div>
   `);
-  const close = () => backdrop.remove();
+  const close = () => {
+    backdrop.remove();
+    document.removeEventListener('keydown', onKeydown);
+    previouslyFocused?.focus?.();
+  };
+  const onKeydown = (event) => {
+    if (event.key === 'Escape') close();
+  };
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) close();
   });
+  backdrop.querySelector('.dialog').addEventListener('click', (event) => event.stopPropagation());
   backdrop.querySelector('[data-cancel]').addEventListener('click', close);
-  backdrop.querySelector('form').addEventListener('submit', async (event) => {
+  const form = backdrop.querySelector('form');
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const errorEl = backdrop.querySelector('[data-error]');
+    const submitButton = form.querySelector('button[type="submit"]');
     errorEl.classList.add('hidden');
+    submitButton.disabled = true;
+    const submitLabel = submitButton.textContent;
+    submitButton.textContent = 'Saving…';
     try {
-      await onSubmit(new FormData(event.target));
-      close();
+      const shouldClose = await onSubmit(new FormData(event.target));
+      if (shouldClose !== false) close();
     } catch (error) {
       errorEl.textContent = error instanceof Error ? error.message : 'Request failed';
       errorEl.classList.remove('hidden');
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = submitLabel;
     }
   });
+  document.addEventListener('keydown', onKeydown);
   document.body.append(backdrop);
+  backdrop.querySelector('.dialog').focus();
   return backdrop;
 }
 
