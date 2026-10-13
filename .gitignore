@@ -30,3 +30,5 @@ out/
 Thumbs.db
 
 *lock.json
+# CSV backups contain private business data and password hashes.
+backend/backups/
