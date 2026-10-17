@@ -24,3 +24,7 @@ def get_db():
     finally:
         db.close()
 
+
+# Every successful application session commit publishes a complete CSV backup.
+from csv_backup import install_backup_hooks
+install_backup_hooks(SessionLocal, engine)

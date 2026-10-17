@@ -55,6 +55,47 @@ def employee_profile_photo_url(employee: models.Employee) -> Optional[str]:
     return f"/api/users/{employee.employeeid}/profile-photo"
 
 
+
+def backup_admin(current_user: models.Employee = Depends(auth.get_current_user)):
+    if current_user.roletype != models.RoleType.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    return current_user
+
+
+@api_router.get("/backups/status", tags=["Backups"])
+def csv_backup_status(current_user=Depends(backup_admin)):
+    import json
+    from csv_backup import backup_directory, backup_lock
+    root = backup_directory()
+    with backup_lock(root):
+        error = root / "last-error.txt"
+        result = {"available": False, "last_error": error.read_text(encoding="utf-8") if error.exists() else None}
+        if (root / "CURRENT").exists():
+            folder = root / (root / "CURRENT").read_text(encoding="utf-8")
+            result.update(available=True, manifest=json.loads((folder / "manifest.json").read_text(encoding="utf-8")))
+        return result
+
+
+@api_router.post("/backups/export", tags=["Backups"])
+def download_csv_backup(current_user=Depends(backup_admin)):
+    import io
+    import zipfile
+    from fastapi.responses import Response
+    from database import engine
+    from csv_backup import backup_directory, backup_lock, create_snapshot
+    root = backup_directory()
+    create_snapshot(engine)
+    # Hold the lock while packaging so another commit cannot remove the snapshot.
+    with backup_lock(root):
+        folder = root / (root / "CURRENT").read_text(encoding="utf-8")
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for source in folder.iterdir():
+                archive.write(source, source.name)
+    return Response(buffer.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition": 'attachment; filename="hardware-world-csv-backup.zip"'
+    })
+
 # --- Helper: Permission Enforcer ---
 def require_perm(perm_code: str):
     def dependency(
