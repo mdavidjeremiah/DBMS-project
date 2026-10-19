@@ -176,18 +176,21 @@ class SaleCreate(BaseModel):
     # Retained as optional for compatibility. The API derives these from JWT.
     employeeid: Optional[int] = None
     branchid: Optional[int] = None
+    warehouseid: Optional[int] = None
+    cashiersessionid: Optional[int] = None
     payment_method: Literal["cash", "card", "mobile_money"] = "cash"
     items: List[SaleItemCreate]
 
 class CashierSessionOpen(BaseModel):
     opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
 
-class LedgerCreate(BaseModel):
-    sourcetype: LedgerSourceType
-    saleid: Optional[int] = None
-    payrollid: Optional[int] = None
-    amount: Decimal
-    recordedby: int
+# Alias used by api_sales_routes.py (both names are accepted)
+class CashierSessionCreate(BaseModel):
+    branch_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
+    opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+
+# NOTE: LedgerCreate is defined below under "Financial Accounting Schemas".
 
 class EmployeeCreate(BaseModel):
     name: str
@@ -471,11 +474,9 @@ class CustomerCreditPayment(BaseModel):
 # =============================================================================
 
 # --- Cashier Sessions ---
-
-class CashierSessionCreate(BaseModel):
-    branch_id: int
-    warehouse_id: int
-    opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+# NOTE: CashierSessionCreate is defined earlier (near SaleCreate) with Optional
+# branch_id/warehouse_id so api_sales_routes.py can fall back to the JWT user's
+# branch. CashierSessionClose lives here because it has no earlier definition.
 
 class CashierSessionClose(BaseModel):
     actual_cash: Decimal = Field(ge=0, max_digits=15, decimal_places=2)

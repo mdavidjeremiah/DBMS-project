@@ -9,7 +9,9 @@ export async function apiRequest(path, init = {}) {
     && init.body
     && (typeof FormData === 'undefined' || !(init.body instanceof FormData))
   ) headers.set('Content-Type', 'application/json');
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST' && !headers.has('Idempotency-Key')) {
+  const isSaleSubmission = ['/sales', '/api/sales'].includes(path)
+    && String(init.method || 'GET').toUpperCase() === 'POST';
+  if (isSaleSubmission && !headers.has('Idempotency-Key')) {
     const keyName = 'hw_pending_sale_key';
     let key = sessionStorage.getItem(keyName);
     if (!key) {
@@ -29,7 +31,7 @@ export async function apiRequest(path, init = {}) {
     if (window.location.pathname !== '/login.html') window.location.replace('/login.html');
   }
   if (!response.ok) throw new Error(body?.detail ?? `API request failed (${response.status})`);
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST') sessionStorage.removeItem('hw_pending_sale_key');
+  if (isSaleSubmission) sessionStorage.removeItem('hw_pending_sale_key');
   return body;
 }
 

@@ -489,6 +489,8 @@ class Sale(Base):
     customerid = Column(Integer, ForeignKey("customer.customerid"), nullable=True)
     employeeid = Column(Integer, ForeignKey("employee.employeeid"))
     branchid = Column(Integer, ForeignKey("branch.branchid"))
+    warehouseid = Column(Integer, ForeignKey("warehouses.warehouse_id"), nullable=True)
+    cashiersessionid = Column(Integer, ForeignKey("cashier_sessions.session_id"), nullable=True)
     status = Column(String(20), nullable=False, default="COMPLETED", index=True) # COMPLETED, HELD, CANCELLED, REFUNDED
     idempotency_key = Column(String(120), nullable=True, unique=True, index=True)
     customer = relationship("Customer", back_populates="sales")
@@ -710,11 +712,13 @@ class CashierSession(Base):
     closing_float = Column(Numeric(12, 2), nullable=True)
     actual_cash = Column(Numeric(12, 2), nullable=True)
     cash_sales = Column(Numeric(12, 2), nullable=True, default=0)
+    cash_refunds = Column(Numeric(12, 2), nullable=True, default=0)
     expected_cash = Column(Numeric(12, 2), nullable=True, default=0)
     variance = Column(Numeric(12, 2), nullable=True)
     notes = Column(String(255), nullable=True)
     opened_at = Column(DateTime, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
+    closed_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=True)
 
     employee = relationship("Employee", foreign_keys=[employee_id])
     branch = relationship("Branch")

@@ -283,312 +283,21 @@ export const CRUD_PAGES = {
   },
 };
 
-export async function renderSales(page, user = window.__HW_USER__) {
-  renderLoadingState(page, 'Loading sales and products…');
-  const [sales, products] = await Promise.all([
-    loadList('/sales'),
-    loadList('/products'),
-  ]);
-  const cashiers = [user].filter(Boolean);
-  const branches = { data: [{ branchid: user?.branchid, branchname: user?.branch_name }] };
-  const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
-  const hasPOS = canSell;
-  let cashierSession = null;
-  let cashierSessionError = null;
-  if (canSell) {
-    try {
-      cashierSession = await apiRequest('/cashier-sessions/current');
-    } catch (error) {
-      cashierSessionError = error instanceof Error ? error.message : 'Unable to check the cashier session.';
-    }
-  }
-  page.innerHTML = `
-    <header class="page-head card">
-      <div>
-        <div class="kicker">${icons.banknote} Point of sale</div>
-        <h1>Sales & Retail Checkout</h1>
-        <p class="muted">Completed sales with stock deduction, payment, and finance journals.</p>
-      </div>
-    </header>
-    <div id="session-notice"></div>
-    ${canSell && !cashierSession && !cashierSessionError ? `<form id="open-cashier-session" class="card form-grid"><h2>Open cashier session</h2><label class="field">Opening cash float (UGX)<input class="control" name="opening_float" type="number" min="0" step="0.01" value="0" required></label><button class="btn btn-primary" type="submit">Open session</button></form>` : ''}
-    ${cashierSession ? `<div class="notice">Cashier session #${cashierSession.session_id} is open · Opening float ${money(cashierSession.opening_float)}</div>` : ''}
-    <form id="pos" class="pos-grid ${!canSell || !cashierSession ? 'hidden' : ''}">
-      <section class="card">
-        <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
-          <select class="control" id="product-select" style="flex:1">
-            <option value="">Select a product</option>
-            ${products.data.filter((p) => p.is_active && Number(p.stock_qty) > 0).map((p) => `<option value="${p.itemid}">${escapeHtml(p.itemname)} · ${money(p.unitprice)} · ${p.stock_qty} in stock</option>`).join('')}
-          </select>
-          <button type="button" class="btn btn-primary" id="add-line">${icons.plus} Add</button>
-        </div>
-        <div id="lines"><p class="muted center">Add products to begin a sale.</p></div>
-      </section>
-      <aside class="card form-grid">
-        <div><h2>Checkout</h2></div>
-        <label class="field">Branch
-          <select class="control" name="branchid" required>
-            ${branches.data.map((b) => `<option value="${b.branchid}" ${b.branchid === user?.branchid ? 'selected' : ''}>${b.branchname}</option>`).join('')}
-          </select>
-        </label>
-        <label class="field">Payment Method
-          <select class="control" name="payment_method">
-            <option value="CASH">Cash</option>
-            <option value="MOBILE_MONEY">Mobile Money</option>
-            <option value="CARD">Card / Bank</option>
-            <option value="CREDIT">Customer Credit</option>
-          </select>
-        </label>
-        <input class="control" name="customername" placeholder="Customer name">
-        <input class="control" name="customerphone" placeholder="Phone number">
-        <div class="page-head"><span>Total</span><strong id="pos-total">${money(0)}</strong></div>
-        <button class="btn btn-primary" type="submit" id="complete-sale" disabled>Complete Sale</button>
-      </aside>
-    </form>
-    <section id="receipt" class="notice hidden" aria-live="polite"></section>
-    <div id="notice"></div>
-    <div id="table"></div>
-  `;
-  showNotice(page.querySelector('#notice'), sales.error || products.error, { onRetry: () => window.location.reload() });
-  showNotice(page.querySelector('#session-notice'), cashierSessionError, { onRetry: () => window.location.reload() });
-  const savedReceipt = sessionStorage.getItem('hw_last_receipt');
-  if (savedReceipt) {
-    try {
-      const receiptData = JSON.parse(savedReceipt);
-      const receipt = page.querySelector('#receipt');
-      receipt.classList.remove('hidden');
-      receipt.textContent = `Sale #${receiptData.saleid} completed · Total ${money(receiptData.totalamount)} · COGS ${money(receiptData.cogs)} · Gross profit ${money(receiptData.gross_profit)}`;
-      const printButton = document.createElement('button');
-      printButton.className = 'btn btn-outline';
-      printButton.textContent = 'Print receipt';
-      printButton.addEventListener('click', () => window.print());
-      receipt.appendChild(printButton);
-      sessionStorage.removeItem('hw_last_receipt');
-    } catch { sessionStorage.removeItem('hw_last_receipt'); }
-  }
-  page.querySelector('#open-cashier-session')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const submitButton = form.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
-    submitButton.textContent = 'Opening session…';
-    try {
-      await apiRequest('/cashier-sessions/open', { method: 'POST', body: JSON.stringify({ opening_float: form.opening_float.value }) });
-      window.location.reload();
-    } catch (error) {
-      showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to open cashier session.');
-      submitButton.disabled = false;
-      submitButton.textContent = 'Open session';
-    }
-  });
-  if (!sales.error) renderTable(page.querySelector('#table'), {
-    columns: [
-      { header: 'Receipt #', key: 'saleid', sortable: true },
-      { header: 'Date', key: 'saledate', sortable: true },
-      { header: 'Customer', key: 'customer_name' },
-      { header: 'Cashier', key: 'cashier_name' },
-      { header: 'Branch', key: 'branch_name' },
-      { header: 'Payment', key: 'payment_method' },
-      { header: 'Total', key: 'totalamount', sortable: true, cell: (row) => money(row.totalamount) },
-    ],
-    data: sales.data,
-    searchKey: 'customer_name',
-  });
+export { renderSales } from './sales.js';
 
-  if (!hasPOS) return;
-
-  const lines = [];
-  const paintLines = () => {
-    const box = page.querySelector('#lines');
-    if (!lines.length) {
-      box.innerHTML = '<p class="muted center">Add products to begin a sale.</p>';
-    } else {
-      box.innerHTML = lines.map((line) => {
-        const product = products.data.find((p) => p.itemid === line.itemid);
-        return `<div class="line" data-id="${line.itemid}"><div><strong>${escapeHtml(product.itemname)}</strong><div class="muted">${money(product.unitprice)} each · ${product.stock_qty} available</div></div><div class="qty"><button type="button" data-dec>-</button><input class="control" type="number" min="0.001" step="0.001" value="${line.quantity}"><button type="button" data-inc>+</button></div><button type="button" data-del>${icons.trash}</button></div>`;
-      }).join('');
-    }
-    const total = lines.reduce((sum, line) => {
-      return sum + (products.data.find((p) => p.itemid === line.itemid)?.unitprice ?? 0) * line.quantity;
-    }, 0);
-    page.querySelector('#pos-total').textContent = money(total);
-    page.querySelector('#complete-sale').disabled = !lines.length;
+// Role-specific form fields shown when provisioning a new employee. The
+// returned markup is injected into the #role-fields container so each role
+// only collects the attributes that apply to it. The role-select change
+// handler calls this again to swap fields as the admin picks a role.
+function employeeRoleFields(roleType) {
+  const ROLE_FIELDS = {
+    Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-01"'),
+    'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" step="0.01" placeholder="e.g. 5000000"'),
+    Accountant: field('certificationnumber', 'CPA / Certification Number', 'placeholder="e.g. CPA-U-12345"'),
+    'HR Staff': field('hr_role', 'HR Designation', 'placeholder="e.g. Recruitment, Payroll"'),
+    'Branch Manager': field('managementlevel', 'Management Level', 'placeholder="e.g. Senior, Regional"'),
   };
-
-  page.querySelector('#add-line').addEventListener('click', () => {
-    const sel = page.querySelector('#product-select');
-    const itemid = Number(sel.value);
-    if (!itemid) return;
-    const existing = lines.find((l) => l.itemid === itemid);
-    const selectedProduct = products.data.find((p) => p.itemid === itemid);
-    if (existing) existing.quantity = Math.min(Number(selectedProduct.stock_qty), existing.quantity + 1);
-    else lines.push({ itemid, quantity: 1 });
-    sel.value = '';
-    showNotice(page.querySelector('#notice'), null);
-    paintLines();
-  });
-
-  page.querySelector('#lines').addEventListener('click', (event) => {
-    const row = event.target.closest('.line');
-    if (!row) return;
-    const line = lines.find((l) => l.itemid === Number(row.dataset.id));
-    if (event.target.closest('[data-inc]')) {
-      const product = products.data.find((p) => p.itemid === line.itemid);
-      line.quantity = Math.min(Number(product.stock_qty), line.quantity + 1);
-    }
-    if (event.target.closest('[data-dec]')) line.quantity -= 1;
-    if (event.target.closest('[data-del]') || line.quantity < 1) {
-      const idx = lines.findIndex((l) => l.itemid === line.itemid);
-      lines.splice(idx, 1);
-    }
-    paintLines();
-  });
-  page.querySelector('#lines').addEventListener('change', (event) => {
-    if (!event.target.matches('input[type="number"]')) return;
-    const row = event.target.closest('.line');
-    const line = lines.find((item) => item.itemid === Number(row.dataset.id));
-    const product = products.data.find((item) => item.itemid === line.itemid);
-    const quantity = Number(event.target.value);
-    line.quantity = Number.isFinite(quantity) && quantity > 0
-      ? Math.min(quantity, Number(product.stock_qty))
-      : 0;
-    if (!line.quantity) lines.splice(lines.indexOf(line), 1);
-    paintLines();
-  });
-  page.querySelector('#pos').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const form = event.target;
-    const noticeEl = page.querySelector('#notice');
-    const btn = page.querySelector('#complete-sale');
-    btn.disabled = true;
-    btn.textContent = 'Processing…';
-    try {
-      const receipt = await apiRequest('/sales', {
-        method: 'POST',
-        headers: { 'Idempotency-Key': ikey },
-        body: JSON.stringify({
-          customername: form.customername.value || null,
-          customerphone: form.customerphone.value || null,
-          employeeid: user.employeeid,
-          branchid: Number(form.branchid.value),
-          payment_method: form.payment_method.value,
-          items: lines.map((line) => ({ itemid: line.itemid, quantity: line.quantity })),
-        }),
-      });
-      sessionStorage.setItem('hw_last_receipt', JSON.stringify(receipt));
-      window.location.reload();
-    } catch (error) {
-      showNotice(noticeEl, error.message);
-      btn.disabled = false;
-      btn.textContent = 'Complete Sale';
-    }
-  });
-}
-
-function showTemporaryPasswordResult(dialog, account, photoUploadError = null, retryPhotoUpload = null) {
-  dialog.querySelector('p.muted').textContent = 'Copy this temporary password and share it securely. It will not be shown again.';
-  const fields = dialog.querySelector('.form-grid');
-  fields.replaceChildren();
-  const message = document.createElement('p');
-  message.textContent = `${account.name || 'The employee'} must change this password at first sign-in. It expires ${new Date(account.temporary_password_expires_at).toLocaleString()}.`;
-  const passwordInput = document.createElement('input');
-  passwordInput.className = 'control';
-  passwordInput.readOnly = true;
-  passwordInput.value = account.temporary_password;
-  passwordInput.setAttribute('aria-label', 'One-time temporary password');
-  const status = document.createElement('p');
-  status.className = 'muted';
-  status.setAttribute('role', 'status');
-  if (photoUploadError) {
-    status.textContent = `Account created, but the profile photo could not be saved: ${photoUploadError}`;
-  }
-  const actions = dialog.querySelector('.dialog-actions');
-  const submit = actions.querySelector('button[type="submit"]');
-  submit.hidden = true;
-  const done = actions.querySelector('[data-cancel]');
-  done.textContent = 'Done';
-  done.addEventListener('click', () => window.location.reload());
-  const copy = document.createElement('button');
-  copy.type = 'button';
-  copy.className = 'btn btn-outline';
-  copy.textContent = 'Copy password';
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(account.temporary_password);
-      status.textContent = 'Temporary password copied.';
-    } catch {
-      passwordInput.focus();
-      passwordInput.select();
-      status.textContent = 'Clipboard access was unavailable. The password is selected; copy it now.';
-    }
-  });
-  actions.prepend(copy);
-  if (photoUploadError && retryPhotoUpload) {
-    const retryPhoto = document.createElement('button');
-    retryPhoto.type = 'button';
-    retryPhoto.className = 'btn btn-outline';
-    retryPhoto.textContent = 'Retry photo upload';
-    retryPhoto.addEventListener('click', async () => {
-      retryPhoto.disabled = true;
-      try {
-        await retryPhotoUpload();
-        status.textContent = 'Profile photo uploaded successfully.';
-        retryPhoto.remove();
-      } catch (error) {
-        status.textContent = `Profile photo could not be saved: ${error instanceof Error ? error.message : 'Upload failed.'}`;
-        retryPhoto.disabled = false;
-      }
-    });
-    actions.prepend(retryPhoto);
-  }
-  fields.append(message, passwordInput, status);
-}
-
-function showEmployeePhotoUploadFailure(dialog, employeeName, errorMessage, retryPhotoUpload) {
-  dialog.querySelector('#dialog-description').textContent = 'The employee account was created, but the profile photo still needs attention.';
-  const fields = dialog.querySelector('.form-grid');
-  fields.replaceChildren();
-  const message = document.createElement('p');
-  message.textContent = `${employeeName}'s account was created.`;
-  const status = document.createElement('p');
-  status.className = 'notice error';
-  status.setAttribute('role', 'alert');
-  status.textContent = `The profile photo could not be saved: ${errorMessage}`;
-  const actions = dialog.querySelector('.dialog-actions');
-  actions.querySelector('button[type="submit"]').hidden = true;
-  const done = actions.querySelector('[data-cancel]');
-  done.textContent = 'Done';
-  done.addEventListener('click', () => window.location.reload());
-  const retry = document.createElement('button');
-  retry.type = 'button';
-  retry.className = 'btn btn-outline';
-  retry.textContent = 'Retry photo upload';
-  retry.addEventListener('click', async () => {
-    retry.disabled = true;
-    try {
-      await retryPhotoUpload();
-      status.className = 'muted';
-      status.textContent = 'Profile photo uploaded successfully.';
-      retry.remove();
-    } catch (uploadError) {
-      status.textContent = `The profile photo could not be saved: ${uploadError instanceof Error ? uploadError.message : 'Upload failed.'}`;
-      retry.disabled = false;
-    }
-  });
-  actions.prepend(retry);
-  fields.append(message, status);
-}
-
-function employeeRoleFields(role) {
-  const roleFields = {
-    Cashier: field('pos_terminalid', 'Assigned POS Terminal ID', 'placeholder="e.g. POS-TERMINAL-02" required'),
-    'Procurement Officer': field('approvallimit', 'Approval Limit (UGX)', 'type="number" min="0" required'),
-    Accountant: field('certificationnumber', 'CPA / Accounting Certification Number'),
-    'HR Staff': field('hr_role', 'HR Designation', 'required'),
-    'Branch Manager': field('managementlevel', 'Management Level'),
-    'Owner / Executive': field('managementlevel', 'Management Level', 'value="Owner / Executive" readonly'),
-  };
-  return roleFields[role] || '<p class="muted role-field-hint">Select an assigned role to show the relevant role-specific fields.</p>';
+  return ROLE_FIELDS[roleType] || '';
 }
 
 export async function renderEmployees(page) {
@@ -902,6 +611,90 @@ export async function renderEmployees(page) {
       roleFields.insertAdjacentHTML('afterbegin', employeeRoleFields(roleSelect.value));
     });
   });
+}
+
+// Replaces the provisioning dialog body with the server-generated temporary
+// password so the admin can copy it once. If the optional profile photo upload
+// failed during provisioning, a Retry button is offered alongside the password.
+function showTemporaryPasswordResult(dialog, result, photoUploadError, retryPhotoUpload) {
+  if (!dialog) return;
+  const name = result?.name ? escapeHtml(result.name) : 'the new employee';
+  const password = result?.temporary_password;
+  const body = document.createElement('div');
+  body.className = 'temporary-password-result';
+  body.innerHTML = `
+    <p class="muted">A one-time temporary password has been issued for ${name}. It must be changed at first sign-in and expires after 24 hours.</p>
+    ${password
+      ? `<label class="field">Temporary password<input class="control" readonly value="${escapeHtml(password)}"></label><p class="muted">Copy this password and share it securely. It will not be shown again.</p>`
+      : '<p class="muted">The system generated the password server-side. Ask the employee to check their registered contact channel.</p>'}
+    ${photoUploadError ? `<div class="notice error" role="alert">${escapeHtml(photoUploadError)}</div>` : ''}
+  `;
+  const form = dialog.querySelector('form');
+  if (form) form.replaceWith(body);
+  else dialog.appendChild(body);
+  if (photoUploadError && typeof retryPhotoUpload === 'function') {
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'btn btn-outline';
+    retryBtn.textContent = 'Retry photo upload';
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true;
+      try {
+        await retryPhotoUpload();
+        window.location.reload();
+      } catch (error) {
+        body.querySelectorAll('.notice.error').forEach((n) => n.remove());
+        body.insertAdjacentHTML('beforeend', `<div class="notice error" role="alert">${escapeHtml(error instanceof Error ? error.message : 'Upload failed.')}</div>`);
+        retryBtn.disabled = false;
+      }
+    });
+    body.appendChild(retryBtn);
+  }
+  const doneBtn = document.createElement('button');
+  doneBtn.type = 'button';
+  doneBtn.className = 'btn btn-primary';
+  doneBtn.textContent = 'Done';
+  doneBtn.addEventListener('click', () => window.location.reload());
+  body.appendChild(doneBtn);
+}
+
+// Shown when an employee account was created successfully but the optional
+// profile photo upload failed. Lets the admin retry the upload or skip it and
+// add the photo later from the employee directory.
+function showEmployeePhotoUploadFailure(dialog, name, errorMessage, retry) {
+  if (!dialog) return;
+  const body = document.createElement('div');
+  body.className = 'photo-upload-failure';
+  body.innerHTML = `
+    <p>The account for ${escapeHtml(name || 'this employee')} was created, but the profile photo could not be uploaded.</p>
+    <div class="notice error" role="alert">${escapeHtml(errorMessage || 'Upload failed.')}</div>
+    <p class="muted">Retry the upload now or skip it and add the photo later from the employee directory.</p>
+  `;
+  const form = dialog.querySelector('form');
+  if (form) form.replaceWith(body);
+  else dialog.appendChild(body);
+  const retryBtn = document.createElement('button');
+  retryBtn.type = 'button';
+  retryBtn.className = 'btn btn-primary';
+  retryBtn.textContent = 'Retry photo upload';
+  retryBtn.addEventListener('click', async () => {
+    retryBtn.disabled = true;
+    try {
+      await retry();
+      window.location.reload();
+    } catch (error) {
+      body.querySelectorAll('.notice.error').forEach((n) => n.remove());
+      body.insertAdjacentHTML('beforeend', `<div class="notice error" role="alert">${escapeHtml(error instanceof Error ? error.message : 'Upload failed.')}</div>`);
+      retryBtn.disabled = false;
+    }
+  });
+  body.appendChild(retryBtn);
+  const skipBtn = document.createElement('button');
+  skipBtn.type = 'button';
+  skipBtn.className = 'btn btn-outline';
+  skipBtn.textContent = 'Skip for now';
+  skipBtn.addEventListener('click', () => window.location.reload());
+  body.appendChild(skipBtn);
 }
 
 // Stub exports for page renderers called from main.js

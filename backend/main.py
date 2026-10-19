@@ -994,16 +994,40 @@ def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Dep
     sales = query.order_by(models.Sale.saledate.desc()).all()
     result = []
     for sale in sales:
-        customer = db.query(models.Customer).filter(models.Customer.customerid == sale.customerid).first() if sale.customerid else None
-        result.append({"saleid": sale.saleid, "saledate": sale.saledate, "totalamount": float(sale.totalamount or 0), "customer_name": customer.name if customer else "Walk-in", "cashier_name": employee_name(db, sale.employeeid), "branch_name": branch_name(db, sale.branchid), "items": [{"item_name": i.product.itemname if i.product else "Unknown product", "quantity": i.quantity, "unitpriceatsale": float(i.unitpriceatsale)} for i in sale.sale_items]})
+        customer = db.get(models.Customer, sale.customerid) if sale.customerid else None
+        result.append({
+            "saleid": sale.saleid,
+            "saledate": sale.saledate,
+            "totalamount": float(sale.totalamount or 0),
+            "payment_method": sale.paymentmethod,
+            "customer_name": customer.name if customer else "Walk-in",
+            "cashier_name": employee_name(db, sale.employeeid),
+            "branch_name": branch_name(db, sale.branchid),
+            "items": [{
+                "itemid": item.itemid,
+                "item_name": item.product.itemname if item.product else "Unknown product",
+                "quantity": float(item.quantity),
+                "unitpriceatsale": float(item.unitpriceatsale),
+                "line_total": float(item.line_total or (item.quantity * item.unitpriceatsale)),
+            } for item in sale.sale_items],
+        })
     return result
 
 @app.get("/cashier-sessions/current", tags=["operations"])
 @app.get("/api/v1/sales/cashier-sessions/current", tags=["operations"])
 def get_current_cashier_session(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
-    session = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, status="OPEN").order_by(models.ERPCashierSession.opened_at.desc()).first()
-    return {"session_id": session.id, "branch_id": session.branch_id, "opening_float": str(session.opening_float), "status": session.status, "opened_at": session.opened_at} if session else None
+    session = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, status="OPEN").order_by(models.CashierSession.opened_at.desc()).first()
+    if not session:
+        return None
+    return {
+        "session_id": session.session_id,
+        "branch_id": session.branch_id,
+        "warehouse_id": session.warehouse_id,
+        "opening_float": str(session.opening_float),
+        "status": session.status,
+        "opened_at": session.opened_at,
+    }
 
 @app.post("/cashier-sessions/open", tags=["operations"])
 @app.post("/api/v1/sales/cashier-sessions/open", tags=["operations"])
@@ -1011,79 +1035,37 @@ def open_cashier_session(payload: schemas.CashierSessionOpen, db: Session = Depe
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
     if not current_user.branchid:
         raise HTTPException(403, "Your account is not assigned to a branch")
-    active = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, status="OPEN").with_for_update().first()
+    active = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, status="OPEN").first()
     if active:
-        return {"session_id": active.id, "status": active.status, "opening_float": str(active.opening_float)}
-    session = models.ERPCashierSession(employeeid=current_user.employeeid, branch_id=current_user.branchid, opening_float=payload.opening_float)
-    db.add(session); db.flush()
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="CASHIER_SESSION_OPENED", module="sales", entity_type="cashier_session", entity_id=str(session.id), branch_id=current_user.branchid))
-    db.commit()
-    return {"session_id": session.id, "status": session.status, "opening_float": str(session.opening_float)}
+        return {"session_id": active.session_id, "status": active.status, "opening_float": str(active.opening_float)}
+    warehouse = db.query(models.Warehouse).filter_by(branch_id=current_user.branchid, is_active=True).order_by(models.Warehouse.warehouse_id).first()
+    if not warehouse:
+        raise HTTPException(409, "Create an active warehouse for your branch before opening a cashier session")
+    session = erp_service.open_cashier_session(
+        employee_id=current_user.employeeid,
+        branch_id=current_user.branchid,
+        warehouse_id=warehouse.warehouse_id,
+        opening_float=payload.opening_float,
+        db=db,
+    )
+    return {"session_id": session.session_id, "status": session.status, "opening_float": str(session.opening_float)}
 
 @app.post("/sales", tags=["operations"])
 @app.post("/api/v1/sales", tags=["operations"])
 def create_sale(payload: schemas.SaleCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user), idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=120)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
-    if not payload.items: raise HTTPException(400, "At least one sale item is required")
+    if not payload.items:
+        raise HTTPException(400, "At least one sale item is required")
     if not current_user.branchid:
         raise HTTPException(403, "Your account is not assigned to a branch")
-    existing = db.query(models.Sale).filter(models.Sale.idempotency_key == idempotency_key).first()
-    if existing:
-        return {"saleid": existing.saleid, "totalamount": str(existing.totalamount), "status": existing.status, "idempotent_replay": True}
-    cashier_session = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, branch_id=current_user.branchid, status="OPEN").with_for_update().first()
+    cashier_session = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, branch_id=current_user.branchid, status="OPEN").order_by(models.CashierSession.opened_at.desc()).first()
     if not cashier_session:
         raise HTTPException(409, "Open a cashier session before completing a sale")
-    quantities = {}
-    for line in payload.items:
-        quantities[line.itemid] = quantities.get(line.itemid, Decimal("0")) + line.quantity
-    customerid = payload.customerid
-    if not customerid and (payload.customername or payload.customerphone):
-        customer = models.Customer(name=payload.customername, phone=payload.customerphone); db.add(customer); db.flush(); customerid = customer.customerid
-    sale = models.Sale(customerid=customerid, employeeid=current_user.employeeid, branchid=current_user.branchid, totalamount=0, status="COMPLETED", idempotency_key=idempotency_key); db.add(sale); db.flush()
-    total = Decimal("0")
-    cogs = Decimal("0")
-    for itemid, quantity in quantities.items():
-        product = db.query(models.Product).filter(models.Product.itemid == itemid).with_for_update().first()
-        if not product: raise HTTPException(400, f"Product {itemid} was not found")
-        if not product.is_active:
-            raise HTTPException(400, f"Product {product.itemname} is inactive")
-        balances = db.query(models.ERPStockBalance).filter_by(itemid=product.itemid, branch_id=current_user.branchid).filter(models.ERPStockBalance.quantity > 0).order_by(models.ERPStockBalance.id).with_for_update().all()
-        available = sum((balance.quantity for balance in balances), Decimal("0"))
-        if available < quantity:
-            raise HTTPException(409, f"Insufficient stock for {product.itemname}")
-        remaining = quantity
-        for balance in balances:
-            moved = min(balance.quantity, remaining)
-            if moved <= 0:
-                break
-            balance.quantity -= moved
-            db.add(models.ERPInventoryMovement(itemid=product.itemid, branch_id=current_user.branchid, warehouse_id=balance.warehouse_id, movement_type="SALE_OUT", quantity=moved, reference_type="SALE", reference_id=sale.saleid, created_by=current_user.employeeid))
-            remaining -= moved
-        total += product.unitprice * quantity
-        supply = db.query(models.Supply).filter_by(itemid=product.itemid).order_by(models.Supply.costprice).first()
-        if supply:
-            cogs += supply.costprice * quantity
-        db.add(models.SaleItem(saleid=sale.saleid, itemid=product.itemid, quantity=quantity, unitpriceatsale=product.unitprice))
-    total = total.quantize(Decimal("0.01"))
-    cogs = cogs.quantize(Decimal("0.01"))
-    sale.totalamount = total
-    db.add(models.ERPPayment(saleid=sale.saleid, branch_id=current_user.branchid, cashier_session_id=cashier_session.id, method=payload.payment_method.lower(), amount=total))
-    journal = models.ERPJournalEntry(reference_type="SALE", reference_id=sale.saleid, branch_id=current_user.branchid, created_by=current_user.employeeid)
-    db.add(journal); db.flush()
-    payment_account = {"cash": ("1000", "Cash on Hand"), "card": ("1010", "Card Clearing"), "mobile_money": ("1020", "Mobile Money")}[payload.payment_method]
-    db.add_all([
-        models.ERPJournalLine(journal_id=journal.id, account_code=payment_account[0], account_name=payment_account[1], debit=total, credit=0),
-        models.ERPJournalLine(journal_id=journal.id, account_code="4000", account_name="Sales Revenue", debit=0, credit=total),
-    ])
-    if cogs:
-        db.add_all([
-            models.ERPJournalLine(journal_id=journal.id, account_code="5000", account_name="Cost of Goods Sold", debit=cogs, credit=0),
-            models.ERPJournalLine(journal_id=journal.id, account_code="1200", account_name="Inventory Asset", debit=0, credit=cogs),
-        ])
-    db.add(models.LedgerEntry(sourcetype=models.LedgerSourceType.SALE, saleid=sale.saleid, amount=total, recordedby=current_user.employeeid))
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="SALE_COMPLETED", module="sales", entity_type="sale", entity_id=str(sale.saleid), branch_id=current_user.branchid, details_json=f'{{"total":"{total}","cogs":"{cogs}"}}'))
-    db.commit(); db.refresh(sale)
-    return {"saleid": sale.saleid, "totalamount": str(total), "cogs": str(cogs), "gross_profit": str(total - cogs), "status": sale.status}
+    payload.branchid = current_user.branchid
+    payload.warehouseid = cashier_session.warehouse_id
+    payload.cashiersessionid = cashier_session.session_id
+    payload.idempotency_key = payload.idempotency_key or idempotency_key
+    return erp_service.process_pos_sale(payload=payload, current_user=current_user, db=db)
 
 @app.get("/ledger", tags=["operations"])
 @app.get("/api/v1/finance/ledger", tags=["operations"])
