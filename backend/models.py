@@ -29,9 +29,9 @@ class LedgerSourceType(str, enum.Enum):
     ADJUSTMENT = "ADJUSTMENT"
     PAYMENT = "PAYMENT"
 
-# =====================================================================
+
 # 1. Organization & Core Entities (Existing 18 + Extensions)
-# =====================================================================
+
 
 class Branch(Base):
     __tablename__ = "branch"
@@ -116,9 +116,9 @@ class BranchManager(Base):
     employeeid = Column(Integer, ForeignKey("employee.employeeid"), primary_key=True)
     managementlevel = Column(String(50))
 
-# =====================================================================
-# 2. RBAC & Governance Tables (Section 3 & 5.2)
-# =====================================================================
+
+# 2. RBAC & Governance Tables 
+
 
 class Role(Base):
     __tablename__ = "roles"
@@ -219,9 +219,9 @@ class ApprovalRequest(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     actioned_at = Column(DateTime, nullable=True)
 
-# =====================================================================
-# 3. Warehousing & Products Catalogue (Section 5.2 & 6B)
-# =====================================================================
+
+# 3. Warehousing & Products Catalogue 
+
 
 class Warehouse(Base):
     __tablename__ = "warehouses"
@@ -544,9 +544,8 @@ class SalesReturn(Base):
 
 
 
-# =====================================================================
-# 6. HR & Payroll Workflows (Section 5.2 & 6G)
-# =====================================================================
+
+# 6. HR & Payroll Workflows 
 
 class EmployeeSalaryStructure(Base):
     __tablename__ = "employee_salary_structures"
@@ -627,9 +626,9 @@ class Payslip(Base):
     payroll_run = relationship("PayrollRun", back_populates="payslips")
     employee = relationship("Employee")
 
-# =====================================================================
-# 7. Financial Accounting & Ledger (Section 5.2 & 6C/E/G/H)
-# =====================================================================
+
+# 7. Financial Accounting & Ledger 
+
 
 class LedgerEntry(Base):
     __tablename__ = "ledger_entry"
@@ -682,9 +681,9 @@ class FinancialAccount(Base):
     account_number = Column(String(50), nullable=True)
     balance = Column(Numeric(15, 2), default=0)
 
-# =====================================================================
+
 # 7b. Stock Adjustments (Stocktake / Shrinkage)
-# =====================================================================
+
 
 class StockAdjustment(Base):
     __tablename__ = "stock_adjustments"
@@ -704,9 +703,9 @@ class StockAdjustment(Base):
     warehouse = relationship("Warehouse")
     requester = relationship("Employee", foreign_keys=[requester_id])
 
-# =====================================================================
+
 # 7c. Cashier Sessions (POS shift management)
-# =====================================================================
+
 
 class CashierSession(Base):
     __tablename__ = "cashier_sessions"
@@ -730,9 +729,9 @@ class CashierSession(Base):
     employee = relationship("Employee", foreign_keys=[employee_id])
     branch = relationship("Branch")
 
-# =====================================================================
+
 # 7d. Customer Credit Accounts (AR system)
-# =====================================================================
+
 
 class CustomerCreditAccount(Base):
     __tablename__ = "customer_credit_accounts"
@@ -745,15 +744,13 @@ class CustomerCreditAccount(Base):
 
     customer = relationship("Customer", back_populates="credit_account")
 
-# =====================================================================
+
 # 7e. Model aliases for api_router compatibility
 #     PurchaseRequisition owns the table; these properties let
 #     api_router.py use the simpler field names.
-# =====================================================================
 
-# =====================================================================
-# 8. Audit Log (Section 5.3)
-# =====================================================================
+# 8. Audit Log 
+
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
