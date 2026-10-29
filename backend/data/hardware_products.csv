@@ -1,0 +1,201 @@
+itemname,category,base_unit,unitprice,costprice,reorderlevel,is_active,description
+Portland cement 32.5R 50kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Portland cement 42.5N 50kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+White cement 25kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Tile adhesive 20kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Tile grout white 2kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Tile grout grey 2kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Waterproof cement additive 5L,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Ready mix plaster 25kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hydrated lime 25kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wall putty 20kg,Building Materials,Bag,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete block 6 inch,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete block 8 inch,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Solid concrete block 4 inch,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Burnt clay brick,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Paving block rectangular,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Paving block hexagonal,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Kerb stone 600mm,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete ventilation block,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete lintel 1.2m,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete lintel 1.8m,Aggregates and Masonry,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rebar 8mm 12m,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rebar 10mm 12m,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rebar 12mm 12m,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rebar 16mm 12m,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rebar 20mm 12m,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Mild steel flat bar 25x3mm,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Mild steel angle 40x40mm,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Square steel tube 25mm,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rectangular steel tube 50x25mm,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Round steel tube 25mm,Reinforcement Steel,Length,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Corrugated roofing sheet 2m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Corrugated roofing sheet 3m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Corrugated roofing sheet 4m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Box profile roofing sheet 3m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Roof ridge cap 2m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Valley flashing 2m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Roof flashing 2m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC gutter 3m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC gutter bracket,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC downpipe 3m,Roofing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Timber 2x2 inch 12ft,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Timber 2x3 inch 12ft,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Timber 2x4 inch 12ft,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Timber 2x6 inch 12ft,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Timber 4x4 inch 12ft,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Plywood board 6mm,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Plywood board 12mm,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Plywood board 18mm,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+MDF board 18mm,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hardboard sheet 3mm,Timber and Boards,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wire nails 2 inch 1kg,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wire nails 3 inch 1kg,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wire nails 4 inch 1kg,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Roofing nails 3 inch 1kg,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Concrete nails 2 inch 500g,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wood screws 4x30mm 100pcs,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wood screws 4x50mm 100pcs,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Drywall screws 25mm 100pcs,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Self drilling screws 25mm 100pcs,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Roofing screws 65mm 100pcs,Nails and Screws,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hex bolts M6x40 10pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hex bolts M8x50 10pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hex bolts M10x60 10pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hex nuts M6 20pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hex nuts M8 20pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Flat washers M8 20pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Expansion bolts M8 10pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Expansion bolts M10 10pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wall plugs 6mm 100pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wall plugs 8mm 100pcs,Bolts and Anchors,Pack,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Claw hammer 16oz,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Ball peen hammer 500g,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Club hammer 1kg,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rubber mallet 500g,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Combination pliers 200mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Long nose pliers 160mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Diagonal cutter 160mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Adjustable wrench 250mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Pipe wrench 350mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Locking pliers 250mm,Hand Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Tape measure 5m,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Tape measure 8m,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Steel ruler 300mm,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Spirit level 600mm,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Spirit level 1200mm,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Try square 300mm,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Chalk line reel 30m,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Plumb bob 500g,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Vernier caliper 150mm,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Carpenter pencil pack 12,Measuring and Marking,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hacksaw frame 300mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hacksaw blade 24TPI,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Handsaw 550mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Utility knife 18mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Utility knife blades 10pcs,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Metal cutting disc 115mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Masonry cutting disc 115mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Grinding disc 115mm,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Sandpaper 80 grit sheet,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Sandpaper 120 grit sheet,Cutting and Abrasives,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Corded drill 13mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Impact drill 13mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Cordless drill 18V,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Angle grinder 115mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Angle grinder 230mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Circular saw 185mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Jigsaw 500W,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Rotary hammer 26mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Orbital sander 125mm,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Hot air gun 2000W,Power Tools,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+HSS drill bit 4mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+HSS drill bit 6mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+HSS drill bit 8mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+HSS drill bit 10mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Masonry drill bit 6mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Masonry drill bit 8mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Masonry drill bit 10mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wood drill bit 10mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+SDS plus bit 12mm,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Screwdriver bit set 32pcs,Drill Bits and Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC waste pipe 32mm 3m,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC waste pipe 40mm 3m,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC soil pipe 110mm 3m,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC elbow 32mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC elbow 40mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC elbow 110mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC tee 32mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC tee 110mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC coupling 40mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC end cap 110mm,PVC Plumbing,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PPR pipe 20mm 4m,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PPR pipe 25mm 4m,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PPR elbow 20mm,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PPR tee 20mm,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PPR coupling 25mm,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Brass ball valve half inch,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Brass ball valve three quarter inch,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Brass gate valve 1 inch,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Flexible hose half inch 600mm,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PTFE thread seal tape 12mm,Water Supply Fittings,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Basin pillar tap,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Kitchen sink mixer tap,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Bib tap half inch,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Shower head chrome,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Shower hose 1.5m,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Basin waste fitting,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Sink waste fitting,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Toilet flush valve,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Toilet seat plastic,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Floor drain stainless 100mm,Sanitary Fixtures,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Single core cable 1.5mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Single core cable 2.5mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Single core cable 4mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Single core cable 6mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Twin earth cable 1.5mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Twin earth cable 2.5mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Flexible cable 0.75mm2 50m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Flexible cable 1.5mm2 50m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Earth cable 6mm2 100m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Electrical insulation tape 10m,Electrical Wiring,Roll,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Single switch 1 gang,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Double switch 2 gang,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Socket outlet 13A single,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Socket outlet 13A double,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Plug top 13A,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Junction box 20mm,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+PVC conduit 20mm 3m,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+MCB breaker 16A,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+MCB breaker 32A,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Distribution board 8 way,Electrical Accessories,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED bulb 9W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED bulb 12W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED bulb 15W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED tube 18W 1200mm,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED floodlight 30W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED floodlight 50W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+LED downlight 12W,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Pendant lamp holder,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Batten lamp holder,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Outdoor bulkhead light,Lighting,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Interior emulsion white 20L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Exterior emulsion white 20L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Gloss paint white 4L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Gloss paint black 4L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Metal primer red oxide 4L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wood primer 4L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wood varnish clear 1L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Paint thinner 1L,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Paint brush 2 inch,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Paint roller 9 inch,Paints and Finishes,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Safety helmet,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Safety goggles,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Dust mask pack 10,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Nitrile coated work gloves pair,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Reflective safety vest,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Steel toe safety boots pair,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Ear defenders,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Wheelbarrow 90L,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Round point shovel,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.
+Builder bucket 20L,Safety and Site Equipment,Piece,0.00,0.00,5,false,Awaiting verified selling and cost prices.

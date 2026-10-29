@@ -70,25 +70,4 @@ def ensure_erp_seed(db):
         if officer:
             order.branch_id = officer.branchid
 
-    branches = db.query(models.Branch).order_by(models.Branch.branchid).all()
-    products = db.query(models.Product).all()
-    admin = db.query(models.Employee).filter_by(roletype=models.RoleType.ADMIN).first()
-    for branch in branches:
-        warehouse = db.query(models.ERPWarehouse).filter_by(branch_id=branch.branchid, name="Main Warehouse").first()
-        if not warehouse:
-            warehouse = models.ERPWarehouse(branch_id=branch.branchid, name="Main Warehouse")
-            db.add(warehouse)
-            db.flush()
-        for product in products:
-            balance = db.query(models.ERPStockBalance).filter_by(itemid=product.itemid, branch_id=branch.branchid).first()
-            if not balance:
-                seeded_sales = db.query(models.SaleItem, models.Sale).join(models.Sale, models.Sale.saleid == models.SaleItem.saleid).filter(models.SaleItem.itemid == product.itemid, models.Sale.branchid == branch.branchid, models.Sale.status == "COMPLETED").all()
-                sold_quantity = sum((line.quantity for line, _sale in seeded_sales), Decimal("0"))
-                opening_quantity = Decimal("1000.000")
-                on_hand = max(Decimal("0.000"), opening_quantity - sold_quantity)
-                balance = models.ERPStockBalance(itemid=product.itemid, branch_id=branch.branchid, warehouse_id=warehouse.id, quantity=on_hand)
-                db.add(balance)
-                if admin:
-                    db.add(models.ERPInventoryMovement(itemid=product.itemid, branch_id=branch.branchid, warehouse_id=warehouse.id, movement_type="OPENING_STOCK", quantity=opening_quantity, reference_type="SEED", reference_id=product.itemid, created_by=admin.employeeid))
-                    for line, sale in seeded_sales:
-                        db.add(models.ERPInventoryMovement(itemid=product.itemid, branch_id=branch.branchid, warehouse_id=warehouse.id, movement_type="SALE_OUT", quantity=line.quantity, reference_type="SALE", reference_id=sale.saleid, created_by=sale.employeeid or admin.employeeid))
+    # Stock is posted only through receipt/opening workflows. Never invent balances.

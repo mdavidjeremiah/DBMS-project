@@ -13,7 +13,7 @@ export async function getSuppliers() {
 }
 
 export async function getSales() {
-  return await apiRequest('/sales');
+  return await apiRequest('/api/sales');
 }
 
 export async function getEmployees() {
@@ -42,7 +42,7 @@ export async function getOrganisation() {
 
 export async function getDashboard() {
   const [sales, pos, staff] = await Promise.all([
-    apiRequest('/sales').catch(() => []),
+    apiRequest('/api/sales').catch(() => []),
     apiRequest('/purchase-orders').catch(() => []),
     apiRequest('/employees').catch(() => [])
   ]);

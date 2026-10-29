@@ -517,12 +517,12 @@ test('dashboard navigation does not link to unimplemented page fragments', async
 });
 
 test('shared controls are wired and POS has a single payment method field', async () => {
-  const [shell, pages, notifications] = await Promise.all([
+  const [shell, sales, notifications] = await Promise.all([
     readFile(new URL('./assets/js/shell.js', sourceRoot), 'utf8'),
-    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+    readFile(new URL('./assets/js/sales.js', sourceRoot), 'utf8'),
     readFile(new URL('./assets/js/notifications.js', sourceRoot), 'utf8'),
   ]);
-  const salesRenderer = pages.slice(pages.indexOf('export async function renderSales'), pages.indexOf('function showTemporaryPasswordResult'));
+  const salesRenderer = sales.slice(sales.indexOf('export async function renderSales'), sales.indexOf('function bindFinalReceiptActions'));
 
   assert.match(shell, /searchInput\.addEventListener\('input'/);
   assert.match(shell, /hw-notif-btn.*addEventListener/s);
@@ -559,15 +559,15 @@ test('approval navigation uses a real page and supported approval endpoints', as
 });
 
 test('dynamic product and warehouse labels are escaped before HTML rendering', async () => {
-  const [pages, dashboard] = await Promise.all([
-    readFile(new URL('./assets/js/pages.js', sourceRoot), 'utf8'),
+  const [sales, dashboard] = await Promise.all([
+    readFile(new URL('./assets/js/sales.js', sourceRoot), 'utf8'),
     readFile(new URL('./assets/js/dashboard.js', sourceRoot), 'utf8'),
   ]);
   const { escapeHtml } = await import('./assets/js/ui.js');
 
   assert.equal(escapeHtml('<img src=x onerror="alert(1)">'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
-  assert.match(pages, /escapeHtml\(p\.itemname\)/);
-  assert.match(pages, /escapeHtml\(product\.itemname\)/);
+  assert.match(sales, /escapeHtml\(product\.itemname\)/);
+  assert.match(sales, /escapeHtml\(warehouse\.warehouse_name\)/);
   assert.match(dashboard, /escapeHtml\(/);
 });
 

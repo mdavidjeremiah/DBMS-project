@@ -128,7 +128,7 @@ export const SIDEBAR_CONFIG = {
 export function getSidebarItems(roletype, permissions = [], assignedRoles = []) {
   const config = assignedRoles.includes('Owner / Executive')
     ? SIDEBAR_CONFIG['Branch Manager']
-    : (SIDEBAR_CONFIG[roletype] || SIDEBAR_CONFIG['Admin']);
+    : (SIDEBAR_CONFIG[roletype] || []);
   const hasWildcard = permissions.includes('*');
 
   const visible = config.filter((item) => {
@@ -148,5 +148,6 @@ export function getSidebarItems(roletype, permissions = [], assignedRoles = []) 
     result.push(item);
     pendingSection = null;
   }
+  if (permissions.some((p) => /^(inventory|procurement|sales|payroll|hr|finance):/.test(p))) result.push({ label: "Operations", icon: "workflow", href: "operations.html" });
   return result;
 }

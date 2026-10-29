@@ -2584,3 +2584,491 @@ dialog::backdrop {
     padding: 1rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════
+   POS — CASHIER SESSION & PRODUCT CART
+   ═══════════════════════════════════════════════════ */
+.pos-grid {
+  display: grid;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .pos-grid {
+    grid-template-columns: 1fr 360px;
+  }
+}
+
+.sale-product-picker {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sale-product-picker .control {
+  flex: 1;
+  min-width: 0;
+}
+
+.sale-total-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.875rem 0;
+  border-top: 2px solid var(--border);
+  font-size: 1.0625rem;
+}
+
+.sale-total-preview strong {
+  font-size: 1.375rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+/* Cart line rows */
+.line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.line > div:first-child strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.line > div:first-child .muted {
+  font-size: 0.8rem;
+  margin-top: 0.1rem;
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.qty button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--muted);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.qty button:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+.qty input {
+  width: 4rem;
+  text-align: center;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+
+/* ═══════════════════════════════════════════════════
+   POS RECEIPT — PREVIEW & FINAL STATES
+   ═══════════════════════════════════════════════════ */
+
+/* Wrapper that holds the receipt card */
+.sale-receipt-panel {
+  margin-bottom: 1.25rem;
+}
+
+.sale-receipt-panel.hidden {
+  display: none;
+}
+
+/* The receipt card itself — mirrors a thermal-printer slip */
+.sale-receipt {
+  background: #fff;
+  color: #111;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem 1.25rem 1rem;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+}
+
+/* Preview state — amber top accent to signal "not yet confirmed" */
+.sale-receipt-preview {
+  border-top: 5px solid var(--accent);
+}
+
+/* Final/completed state — primary top accent */
+.sale-receipt-final {
+  border-top: 5px solid var(--primary);
+}
+
+.sale-receipt-header {
+  text-align: center;
+  margin-bottom: 0.75rem;
+  line-height: 1.45;
+}
+
+.sale-receipt-brand {
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.sale-receipt h2 {
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0.75rem 0 0.5rem;
+}
+
+/* Dashed separator */
+.sale-receipt-rule {
+  border: none;
+  border-top: 1px dashed #bbb;
+  margin: 0.75rem 0;
+}
+
+/* Two-column metadata grid */
+.sale-receipt-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 1rem;
+  row-gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.sale-receipt-meta span {
+  color: #555;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.sale-receipt-meta strong {
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Items list */
+.sale-receipt-items-heading {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.sale-receipt-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sale-receipt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.sale-receipt-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sale-receipt-item-main strong {
+  display: block;
+  font-size: 0.875rem;
+}
+
+.sale-receipt-item-main span {
+  display: block;
+  font-size: 0.78rem;
+  color: #555;
+}
+
+.sale-receipt-item > strong {
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+/* Totals block */
+.sale-receipt-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sale-receipt-totals > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+}
+
+.sale-receipt-grand-total {
+  font-size: 1.1rem !important;
+  font-weight: 900;
+  padding-top: 0.3rem;
+}
+
+/* Footer */
+.sale-receipt-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.5rem;
+}
+
+/* Action buttons row */
+.sale-receipt-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Dark mode overrides for receipt */
+.dark .sale-receipt {
+  background: var(--card);
+  color: var(--card-foreground);
+  border-color: var(--border);
+}
+
+.dark .sale-receipt-rule {
+  border-top-color: var(--border);
+}
+
+.dark .sale-receipt-meta span,
+.dark .sale-receipt-item-main span {
+  color: var(--muted-foreground);
+}
+
+/* ═══════════════════════════════════════════════════
+   BENTO DASHBOARD GRID
+   ═══════════════════════════════════════════════════ */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 1rem;
+}
+
+.bento-hero {
+  grid-column: span 8;
+}
+
+.bento-kpi {
+  grid-column: span 4;
+}
+
+.bento-wide {
+  grid-column: span 12;
+}
+
+@media (max-width: 1100px) {
+  .bento-hero { grid-column: span 12; }
+  .bento-kpi  { grid-column: span 6; }
+}
+
+@media (max-width: 720px) {
+  .bento-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .bento-hero, .bento-kpi, .bento-wide { grid-column: span 1; }
+}
+
+.hero-value {
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 900;
+  line-height: 1.15;
+  margin: 0.35rem 0;
+}
+
+.context-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+/* ═══════════════════════════════════════════════════
+   SHELL — TOPBAR ADDITIONS
+   ═══════════════════════════════════════════════════ */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.branch-chip {
+  display: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (min-width: 900px) {
+  .branch-chip { display: inline-flex; }
+}
+
+.date-filter {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.quick-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+}
+
+/* Navigation label section headers */
+.nav-label {
+  padding: 0.5rem 0.75rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Navigation badge (approval count etc.) */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--destructive);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.nav-badge:empty {
+  display: none;
+}
+
+/* Employee directory actions */
+.employee-account-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.employee-directory-table {
+  overflow-x: auto;
+}
+
+/* ═══════════════════════════════════════════════════
+   PRINT MEDIA — Hide everything except receipt
+   ═══════════════════════════════════════════════════ */
+@media print {
+  body > *:not(.sale-receipt-print-target) { display: none !important; }
+  .app-shell { display: none !important; }
+  .sale-receipt { border: none; box-shadow: none; max-width: 100%; }
+  .sale-receipt-actions { display: none !important; }
+  .sale-receipt-preview { border-top-color: transparent; }
+  .sale-receipt-final { border-top-color: transparent; }
+}
+
+/* ═══════════════════════════════════════════════════
+   RECEIPT — ADDITIONAL ELEMENTS
+   ═══════════════════════════════════════════════════ */
+.sale-receipt-address {
+  font-size: 0.78rem;
+  color: #555;
+  line-height: 1.5;
+  margin-bottom: 0.2rem;
+}
+
+.dark .sale-receipt-address {
+  color: var(--muted-foreground);
+}
+
+.sale-receipt-tagline {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #666;
+  margin: 0.4rem 0 0.2rem;
+}
+
+.dark .sale-receipt-tagline {
+  color: var(--muted-foreground);
+}
+
+.sale-receipt-tx-ref {
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  margin: 0.75rem 0 0.3rem;
+}
+
+.sale-receipt-payment-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding-top: 0.2rem;
+}
+
+/* Operational tasks keep prerequisites readable on desktop and mobile. */
+.workflow-actions {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1rem;margin-top:1rem;align-items:start}
+.workflow-task {display:flex;flex-direction:column;gap:.5rem;min-width:0}
+.workflow-task .btn {width:100%;white-space:normal;min-height:44px;text-align:left;justify-content:flex-start}
+.workflow-task p {font-size:.875rem;line-height:1.5;margin:0}
+.workflow-records {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.workflow-records .card {min-width:0}
+#feedback:not(:empty) {padding:1rem;border:1px solid var(--border);border-radius:.75rem;margin:1rem 0;overflow-wrap:anywhere}
+@media(max-width:900px) {.workflow-records {grid-template-columns:1fr}}

@@ -9,7 +9,9 @@ export async function apiRequest(path, init = {}) {
     && init.body
     && (typeof FormData === 'undefined' || !(init.body instanceof FormData))
   ) headers.set('Content-Type', 'application/json');
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST' && !headers.has('Idempotency-Key')) {
+  const isSaleSubmission = ['/sales', '/api/sales'].includes(path)
+    && String(init.method || 'GET').toUpperCase() === 'POST';
+  if (isSaleSubmission && !headers.has('Idempotency-Key')) {
     const keyName = 'hw_pending_sale_key';
     let key = sessionStorage.getItem(keyName);
     if (!key) {
@@ -28,8 +30,11 @@ export async function apiRequest(path, init = {}) {
   if (response.status === 401 && !['/login', '/departments/public', '/health'].includes(path)) {
     if (window.location.pathname !== '/login.html') window.location.replace('/login.html');
   }
-  if (!response.ok) throw new Error(body?.detail ?? `API request failed (${response.status})`);
-  if (path === '/sales' && String(init.method || 'GET').toUpperCase() === 'POST') sessionStorage.removeItem('hw_pending_sale_key');
+  if (!response.ok) {
+    const detail = Array.isArray(body?.detail) ? body.detail.map(e => `${e.loc?.slice(1).join('.') || 'Input'}: ${e.msg}`).join('; ') : body?.detail;
+    throw new Error(detail || `API request failed (${response.status})`);
+  }
+  if (isSaleSubmission) sessionStorage.removeItem('hw_pending_sale_key');
   return body;
 }
 

@@ -97,8 +97,11 @@ def audit_identity_from_request(request: Request):
 
 @app.middleware("http")
 async def audit_protected_api_access(request: Request, call_next):
-    response = await call_next(request)
     path = request.url.path
+    if path.endswith((".mjs", ".json", ".txt")) and not path.startswith("/api/") and path != "/openapi.json":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail":"Not found"},status_code=404)
+    response = await call_next(request)
     if path.endswith((".html", ".js", ".css")):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     identity = audit_identity_from_request(request)
@@ -334,7 +337,7 @@ async def login_for_access_token(
         if (
             not is_configured_admin_username
             or not admin_password
-            or not secrets.compare_digest(password, admin_password)
+            or not secrets.compare_digest(password.encode("utf-8"), admin_password.encode("utf-8"))
         ):
             write_audit_log(action="FAILED_LOGIN", username_or_email=username or None, details="Invalid configured administrator credentials", ip_address=request_ip(request))
             raise HTTPException(
@@ -609,17 +612,15 @@ def get_products(db: Session = Depends(get_db), current_user: models.Employee = 
     products = db.query(models.Product).order_by(models.Product.itemname).all()
     result = []
     for p in products:
-        balance = db.query(func.coalesce(func.sum(models.ERPStockBalance.quantity), 0)).filter_by(itemid=p.itemid, branch_id=current_user.branchid).scalar() or 0
+        balance = db.query(func.coalesce(func.sum(models.InventoryBalance.available_stock), 0)).join(models.Warehouse, models.InventoryBalance.warehouse_id == models.Warehouse.warehouse_id).filter(models.InventoryBalance.item_id == p.itemid, models.Warehouse.branch_id == current_user.branchid).scalar() or 0
         result.append({"itemid": p.itemid, "itemname": p.itemname, "description": p.description, "unitprice": str(p.unitprice), "reorderlevel": p.reorderlevel or 0, "categoryid": p.categoryid, "category_name": p.category.categoryname if p.category else "Unknown category", "is_active": p.is_active, "stock_qty": str(balance)})
     return result
 
 @app.get("/inventory/balances", tags=["catalogue"])
 @app.get("/api/v1/inventory/balances", tags=["catalogue"])
 def get_inventory_balances(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    query = db.query(models.ERPStockBalance).filter_by(branch_id=current_user.branchid)
-    if not auth.has_any_role(current_user, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.BRANCH_MANAGER):
-        require_role(current_user, models.RoleType.CASHIER, models.RoleType.ACCOUNTANT, models.RoleType.HR_STAFF)
-    return [{"itemid": b.itemid, "branch_id": b.branch_id, "warehouse_id": b.warehouse_id, "quantity": str(b.quantity), "updated_at": b.updated_at} for b in query.order_by(models.ERPStockBalance.itemid).all()]
+    from api_router import get_api_inventory
+    return get_api_inventory(None,current_user,db)
 
 @app.post("/products", tags=["catalogue"])
 def create_product(payload: schemas.ProductCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
@@ -747,221 +748,83 @@ def get_purchase_orders(db: Session = Depends(get_db), current_user: models.Empl
     if current_user.roletype != models.RoleType.ADMIN:
         query = query.filter(models.PurchaseOrder.branch_id == current_user.branchid)
     orders = query.order_by(models.PurchaseOrder.orderdate.desc()).all()
-    return [{"po_id": o.po_id, "orderdate": o.orderdate, "status": o.status.value, "branch_id": o.branch_id, "supplier_name": db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first().suppliername if db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first() else "Unknown supplier", "officer_name": employee_name(db, o.employeeid), "items": [{"id": line.id, "itemid": line.itemid, "item_name": db.query(models.Product).filter_by(itemid=line.itemid).first().itemname, "quantity": str(line.quantity), "received_quantity": str(line.received_quantity), "remaining_quantity": str(line.quantity - line.received_quantity), "unit_cost": str(line.unit_cost)} for line in db.query(models.ERPPurchaseOrderItem).filter_by(po_id=o.po_id).all()]} for o in orders]
+    return [{"po_id": o.po_id, "orderdate": o.orderdate, "status": o.status.value, "branch_id": o.branch_id, "supplier_name": db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first().suppliername if db.query(models.Supplier).filter(models.Supplier.supplierid == o.supplierid).first() else "Unknown supplier", "officer_name": employee_name(db, o.employeeid), "items": [{"id": line.id, "itemid": line.itemid, "item_name": db.query(models.Product).filter_by(itemid=line.itemid).first().itemname, "quantity": str(line.quantity), "received_quantity": str(line.received_quantity), "remaining_quantity": str(line.quantity - line.received_quantity), "unit_cost": str(line.unit_cost)} for line in db.query(models.PurchaseOrderItem).filter_by(po_id=o.po_id).all()]} for o in orders]
 
 @app.get("/purchase-requisitions", tags=["operations"])
 @app.get("/api/v1/procurement/requisitions", tags=["operations"])
 def get_purchase_requisitions(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER, models.RoleType.BRANCH_MANAGER)
-    query = db.query(models.ERPPurchaseRequisition)
+    query = db.query(models.PurchaseRequisition)
     if current_user.roletype != models.RoleType.ADMIN:
-        query = query.filter(models.ERPPurchaseRequisition.branch_id == current_user.branchid)
-    return [{"id": r.id, "reference": r.reference, "branch_id": r.branch_id, "requested_by": employee_name(db, r.requested_by), "status": r.status, "notes": r.notes, "created_at": r.created_at, "items": [{"itemid": i.itemid, "item_name": db.query(models.Product).filter_by(itemid=i.itemid).first().itemname, "quantity": str(i.quantity), "estimated_unit_cost": str(i.estimated_unit_cost)} for i in db.query(models.ERPPurchaseRequisitionItem).filter_by(requisition_id=r.id).all()]} for r in query.order_by(models.ERPPurchaseRequisition.created_at.desc()).all()]
+        query = query.filter(models.PurchaseRequisition.branch_id == current_user.branchid)
+    return [{"id": r.id, "reference": r.reference, "branch_id": r.branch_id, "requested_by": employee_name(db, r.requested_by), "status": r.status, "notes": r.notes, "created_at": r.created_at, "items": [{"itemid": i.itemid, "item_name": db.query(models.Product).filter_by(itemid=i.itemid).first().itemname, "quantity": str(i.quantity), "estimated_unit_cost": str(i.estimated_unit_cost)} for i in db.query(models.PurchaseRequisitionItem).filter_by(requisition_id=r.id).all()]} for r in query.order_by(models.PurchaseRequisition.created_at.desc()).all()]
 
 @app.post("/purchase-requisitions", tags=["operations"])
 @app.post("/api/v1/procurement/requisitions", tags=["operations"])
 def create_purchase_requisition(payload: schemas.PurchaseRequisitionCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER)
-    if not current_user.branchid or not payload.items:
-        raise HTTPException(400, "A branch and at least one requisition line are required")
-    requisition = models.ERPPurchaseRequisition(reference=f"PR-{uuid.uuid4().hex[:10].upper()}", branch_id=current_user.branchid, requested_by=current_user.employeeid, notes=payload.notes, status="PENDING")
-    db.add(requisition); db.flush()
-    for line in payload.items:
-        if not db.query(models.Product).filter_by(itemid=line.itemid).first():
-            raise HTTPException(404, f"Product {line.itemid} was not found")
-        db.add(models.ERPPurchaseRequisitionItem(requisition_id=requisition.id, itemid=line.itemid, quantity=line.quantity, estimated_unit_cost=line.estimated_unit_cost))
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="REQUISITION_CREATED", module="procurement", entity_type="purchase_requisition", entity_id=str(requisition.id), branch_id=current_user.branchid))
-    db.commit()
-    return {"id": requisition.id, "reference": requisition.reference, "status": requisition.status}
+    from api_router import create_requisition
+    return create_requisition(payload, current_user, db)
 
 @app.post("/purchase-requisitions/{requisition_id}/approve", tags=["operations"])
 @app.post("/api/v1/procurement/requisitions/{requisition_id}/approve", tags=["operations"])
 def approve_purchase_requisition(requisition_id: int, payload: schemas.ApprovalDecision, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER)
-    requisition = db.query(models.ERPPurchaseRequisition).filter_by(id=requisition_id).with_for_update().first()
-    if not requisition:
-        raise HTTPException(404, "Requisition not found")
-    if requisition.status != "PENDING":
-        raise HTTPException(409, "Only pending requisitions can be approved")
-    if requisition.requested_by == current_user.employeeid:
-        raise HTTPException(403, "A requester cannot approve their own requisition")
-    if current_user.roletype != models.RoleType.ADMIN and requisition.branch_id != current_user.branchid:
-        raise HTTPException(403, "Requisition is outside your branch scope")
-    requisition.status = "APPROVED"
-    db.add(models.ERPPurchaseRequisitionApproval(requisition_id=requisition.id, requested_by=requisition.requested_by, approved_by=current_user.employeeid, decision="APPROVED", reason=payload.reason))
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="REQUISITION_APPROVED", module="procurement", entity_type="purchase_requisition", entity_id=str(requisition.id), branch_id=requisition.branch_id, details_json=payload.reason))
-    db.commit()
-    return {"id": requisition.id, "status": requisition.status}
+    from api_router import approve_requisition
+    return approve_requisition(requisition_id, current_user, db)
 
 @app.post("/purchase-orders", tags=["operations"])
 @app.post("/api/v1/procurement/purchase-orders", tags=["operations"])
 def create_purchase_order(payload: schemas.PurchaseOrderCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER)
-    if not payload.requisition_id:
-        raise HTTPException(400, "An approved requisition is required to create a purchase order")
-    requisition = db.query(models.ERPPurchaseRequisition).filter_by(id=payload.requisition_id).with_for_update().first()
-    if not requisition or requisition.status != "APPROVED":
-        raise HTTPException(409, "Purchase order requires an approved requisition")
-    if current_user.roletype != models.RoleType.ADMIN and requisition.branch_id != current_user.branchid:
-        raise HTTPException(403, "Requisition is outside your branch scope")
-    if requisition.requested_by == current_user.employeeid:
-        raise HTTPException(403, "A requisition requester cannot create its purchase order")
-    supplier = db.query(models.Supplier).filter_by(supplierid=payload.supplierid).first()
-    if not supplier:
-        raise HTTPException(404, "Supplier not found")
-    order = models.PurchaseOrder(supplierid=payload.supplierid, employeeid=current_user.employeeid, branch_id=requisition.branch_id, requisition_id=requisition.id, status=models.POStatus.PENDING)
-    db.add(order); db.flush()
-    for line in db.query(models.ERPPurchaseRequisitionItem).filter_by(requisition_id=requisition.id).all():
-        db.add(models.ERPPurchaseOrderItem(po_id=order.po_id, itemid=line.itemid, quantity=line.quantity, unit_cost=line.estimated_unit_cost))
-    requisition.status = "CONVERTED"
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="PURCHASE_ORDER_CREATED", module="procurement", entity_type="purchase_order", entity_id=str(order.po_id), branch_id=requisition.branch_id))
-    db.commit(); db.refresh(order)
-    return {"po_id": order.po_id, "status": order.status.value, "branch_id": order.branch_id}
+    from api_router import create_api_purchase_order
+    return create_api_purchase_order(payload, current_user, db)
 
 @app.post("/purchase-orders/{po_id}/approve", tags=["operations"])
 @app.post("/api/v1/procurement/purchase-orders/{po_id}/approve", tags=["operations"])
 def approve_purchase_order(po_id: int, payload: schemas.ApprovalDecision, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER, models.RoleType.PROCUREMENT_OFFICER)
-    order = db.query(models.PurchaseOrder).filter_by(po_id=po_id).with_for_update().first()
-    if not order:
-        raise HTTPException(404, "Purchase order not found")
-    if current_user.roletype != models.RoleType.ADMIN and order.branch_id != current_user.branchid:
-        raise HTTPException(403, "Purchase order is outside your branch scope")
-    if order.status != models.POStatus.PENDING:
-        raise HTTPException(409, "Only pending purchase orders can be approved")
-    if order.employeeid == current_user.employeeid:
-        raise HTTPException(403, "A purchase order creator cannot approve their own order")
-    amount = sum((line.quantity * line.unit_cost for line in db.query(models.ERPPurchaseOrderItem).filter_by(po_id=po_id).all()), Decimal("0"))
-    officer = db.query(models.ProcurementOfficer).filter_by(employeeid=current_user.employeeid).first()
-    if officer and amount > officer.approvallimit:
-        raise HTTPException(403, "Purchase order exceeds your approval limit")
-    order.status = models.POStatus.APPROVED
-    db.add(models.ERPPurchaseOrderApproval(po_id=po_id, requested_by=order.employeeid, approved_by=current_user.employeeid, decision="APPROVED", reason=payload.reason))
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="PURCHASE_ORDER_APPROVED", module="procurement", entity_type="purchase_order", entity_id=str(po_id), branch_id=order.branch_id, details_json=payload.reason))
-    db.commit()
-    return {"po_id": po_id, "status": order.status.value}
+    if not auth.has_permission(db, current_user, "procurement:po_approve"):
+        raise HTTPException(403, "Purchase approval permission required")
+    order = erp_service.approve_or_reject_po(po_id, payload.action, current_user, payload.reason, db)
+    return {"po_id": order.po_id, "status": order.status.value}
 
 @app.post("/goods-received-notes", tags=["operations"])
 @app.post("/api/v1/procurement/goods-received-notes", tags=["operations"])
 def create_goods_received_note(payload: schemas.GRNCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.PROCUREMENT_OFFICER)
-    order = db.query(models.PurchaseOrder).filter_by(po_id=payload.po_id).with_for_update().first()
-    if not order or order.status not in (models.POStatus.APPROVED, models.POStatus.PARTIALLY_RECEIVED):
-        raise HTTPException(409, "Goods can only be received against an approved, open PO")
-    if current_user.roletype != models.RoleType.ADMIN and order.branch_id != current_user.branchid:
-        raise HTTPException(403, "Purchase order is outside your branch scope")
-    approval = db.query(models.ERPPurchaseOrderApproval).filter_by(po_id=order.po_id, decision="APPROVED").order_by(models.ERPPurchaseOrderApproval.id.desc()).first()
-    requisition = db.query(models.ERPPurchaseRequisition).filter_by(id=order.requisition_id).first() if order.requisition_id else None
-    if not approval or current_user.employeeid in {order.employeeid, approval.approved_by} or (requisition and current_user.employeeid == requisition.requested_by):
-        raise HTTPException(403, "Receiver must be different from the PO requester and approver")
-    if not payload.items:
-        raise HTTPException(400, "At least one received line is required")
-    warehouse = db.query(models.ERPWarehouse).filter_by(branch_id=order.branch_id, is_active=True).first()
+    po = db.get(models.PurchaseOrder, payload.po_id)
+    if not po:
+        raise HTTPException(404, "Order not found")
+    warehouse = db.query(models.Warehouse).filter_by(branch_id=po.branch_id,is_active=True).first()
     if not warehouse:
-        warehouse = models.ERPWarehouse(branch_id=order.branch_id, name="Main Warehouse"); db.add(warehouse); db.flush()
-    grn = models.ERPGoodsReceivedNote(reference=f"GRN-{uuid.uuid4().hex[:10].upper()}", po_id=order.po_id, branch_id=order.branch_id, warehouse_id=warehouse.id, received_by=current_user.employeeid)
-    db.add(grn); db.flush()
-    lines = []
-    for received in payload.items:
-        po_line = db.query(models.ERPPurchaseOrderItem).filter_by(id=received.po_item_id, po_id=order.po_id).with_for_update().first()
-        if not po_line or po_line.received_quantity + received.quantity > po_line.quantity:
-            raise HTTPException(409, "Received quantity exceeds the remaining approved quantity")
-        po_line.received_quantity += received.quantity
-        db.add(models.ERPGoodsReceivedNoteItem(grn_id=grn.id, po_item_id=po_line.id, quantity=received.quantity))
-        balance = db.query(models.ERPStockBalance).filter_by(itemid=po_line.itemid, branch_id=order.branch_id, warehouse_id=warehouse.id).with_for_update().first()
-        if not balance:
-            balance = models.ERPStockBalance(itemid=po_line.itemid, branch_id=order.branch_id, warehouse_id=warehouse.id, quantity=0); db.add(balance)
-        balance.quantity += received.quantity
-        db.add(models.ERPInventoryMovement(itemid=po_line.itemid, branch_id=order.branch_id, warehouse_id=warehouse.id, movement_type="GRN_IN", quantity=received.quantity, reference_type="GRN", reference_id=grn.id, created_by=current_user.employeeid))
-        lines.append(po_line)
-    complete = all(line.received_quantity >= line.quantity for line in db.query(models.ERPPurchaseOrderItem).filter_by(po_id=order.po_id).all())
-    order.status = models.POStatus.RECEIVED if complete else models.POStatus.PARTIALLY_RECEIVED
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="GOODS_RECEIVED", module="procurement", entity_type="goods_received_note", entity_id=str(grn.id), branch_id=order.branch_id))
-    db.commit()
-    return {"id": grn.id, "reference": grn.reference, "status": grn.status, "po_status": order.status.value}
+        raise HTTPException(409, "Create a warehouse before receiving goods")
+    items=[]
+    for item in payload.items:
+        line=db.get(models.PurchaseOrderItem,item.po_item_id)
+        if not line or line.po_id != po.po_id:
+            raise HTTPException(422, "Receipt item is not on this order")
+        items.append(schemas.GoodsReceivedNoteItemCreate(item_id=line.itemid,quantity_received=item.quantity,unit_cost=line.unit_cost))
+    grn=erp_service.create_goods_received_note(schemas.GoodsReceivedNoteCreate(po_id=po.po_id,warehouse_id=warehouse.warehouse_id,items=items),current_user,db)
+    return {"grn_id":grn.id,"reference":grn.reference,"status":grn.status}
 
 @app.post("/supplier-invoices", tags=["operations"])
 @app.post("/api/v1/finance/supplier-invoices", tags=["operations"])
 def create_supplier_invoice(payload: schemas.SupplierInvoiceCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
-    order = db.query(models.PurchaseOrder).filter_by(po_id=payload.po_id).first()
-    grn = db.query(models.ERPGoodsReceivedNote).filter_by(id=payload.grn_id, po_id=payload.po_id, status="CONFIRMED").first()
-    if not order or not grn or order.status not in (models.POStatus.PARTIALLY_RECEIVED, models.POStatus.RECEIVED):
-        raise HTTPException(409, "Invoice requires an approved PO and confirmed GRN")
-    if current_user.roletype != models.RoleType.ADMIN and order.branch_id != current_user.branchid:
-        raise HTTPException(403, "Purchase order is outside your branch scope")
-    if grn.received_by == current_user.employeeid:
-        raise HTTPException(403, "The goods receiver cannot record the supplier invoice")
-    invoice = models.ERPSupplierInvoice(invoice_number=payload.invoice_number, po_id=order.po_id, grn_id=grn.id, branch_id=order.branch_id, amount=payload.amount, created_by=current_user.employeeid)
-    db.add(invoice); db.flush()
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="SUPPLIER_INVOICE_RECORDED", module="finance", entity_type="supplier_invoice", entity_id=str(invoice.id), branch_id=order.branch_id))
-    db.commit()
-    return {"id": invoice.id, "status": invoice.status}
+    from api_router import create_api_supplier_invoice
+    return create_api_supplier_invoice(payload, None, current_user, db)
 
 @app.post("/supplier-invoices/{invoice_id}/match", tags=["operations"])
 @app.post("/api/v1/finance/supplier-invoices/{invoice_id}/match", tags=["operations"])
 def match_supplier_invoice(invoice_id: int, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
-    invoice = db.query(models.ERPSupplierInvoice).filter_by(id=invoice_id).with_for_update().first()
+    if not auth.has_permission(db, current_user, "finance:invoice"):
+        raise HTTPException(403, "Invoice permission required")
+    invoice = db.get(models.SupplierInvoice, invoice_id)
     if not invoice:
-        raise HTTPException(404, "Supplier invoice not found")
-    if current_user.roletype != models.RoleType.ADMIN and invoice.branch_id != current_user.branchid:
-        raise HTTPException(403, "Invoice is outside your branch scope")
-    received = db.query(models.ERPGoodsReceivedNoteItem, models.ERPPurchaseOrderItem).join(models.ERPPurchaseOrderItem, models.ERPGoodsReceivedNoteItem.po_item_id == models.ERPPurchaseOrderItem.id).filter(models.ERPGoodsReceivedNoteItem.grn_id == invoice.grn_id).all()
-    expected = sum((grn_line.quantity * po_line.unit_cost for grn_line, po_line in received), Decimal("0")).quantize(Decimal("0.01"))
-    received_qty = sum((grn_line.quantity for grn_line, _ in received), Decimal("0"))
-    ordered_qty = sum((line.quantity for line in db.query(models.ERPPurchaseOrderItem).filter_by(po_id=invoice.po_id).all()), Decimal("0"))
-    matched = expected == invoice.amount and bool(received)
-    db.add(models.ERPInvoiceMatchResult(invoice_id=invoice.id, matched=matched, ordered_quantity=ordered_qty, received_quantity=received_qty, invoiced_amount=invoice.amount, expected_amount=expected, checked_by=current_user.employeeid))
-    invoice.status = "MATCHED" if matched else "VARIANCE"
-    if matched:
-        journal = models.ERPJournalEntry(reference_type="SUPPLIER_INVOICE", reference_id=invoice.id, branch_id=invoice.branch_id, created_by=current_user.employeeid)
-        db.add(journal); db.flush()
-        db.add_all([models.ERPJournalLine(journal_id=journal.id, account_code="1200", account_name="Inventory Asset", debit=expected, credit=0), models.ERPJournalLine(journal_id=journal.id, account_code="2000", account_name="Accounts Payable", debit=0, credit=expected)])
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="SUPPLIER_INVOICE_MATCHED" if matched else "SUPPLIER_INVOICE_VARIANCE", module="finance", entity_type="supplier_invoice", entity_id=str(invoice.id), branch_id=invoice.branch_id))
-    db.commit()
-    if not matched:
-        raise HTTPException(409, f"Three-way match variance: invoice UGX {invoice.amount} does not match GRN value UGX {expected}")
-    return {"invoice_id": invoice.id, "matched": True, "expected_amount": str(expected), "received_quantity": str(received_qty)}
+        raise HTTPException(404, "Invoice not found")
+    erp_service.require_branch_access(db, current_user, invoice.branch_id)
+    return {"invoice_id": invoice.id, "matched": invoice.status in {"MATCHED", "PARTIAL", "PAID"}, "status": invoice.status}
 
 @app.post("/supplier-payments", tags=["operations"])
 @app.post("/api/v1/finance/supplier-payments", tags=["operations"])
 def pay_supplier_invoice(payload: schemas.SupplierPaymentCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
-    require_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT)
-    if current_user.roletype != models.RoleType.ADMIN and not any(role.name in {"Finance Manager", "Owner / Executive"} for role in current_user.erp_roles):
-        raise HTTPException(403, "Supplier payments require Finance Manager or Owner approval")
-    invoice = db.query(models.ERPSupplierInvoice).filter_by(id=payload.invoice_id).with_for_update().first()
-    if not invoice or invoice.status not in {"MATCHED", "PARTIALLY_PAID"}:
-        raise HTTPException(409, "Only a three-way matched supplier invoice can be paid")
-    if current_user.roletype != models.RoleType.ADMIN and invoice.branch_id != current_user.branchid:
-        raise HTTPException(403, "Invoice is outside your branch scope")
-    match = db.query(models.ERPInvoiceMatchResult).filter_by(invoice_id=invoice.id, matched=True).order_by(models.ERPInvoiceMatchResult.created_at.desc()).first()
-    if not match:
-        raise HTTPException(409, "A successful PO + GRN + invoice match is required")
-    grn = db.query(models.ERPGoodsReceivedNote).filter_by(id=invoice.grn_id).first()
-    order = db.query(models.PurchaseOrder).filter_by(po_id=invoice.po_id).first()
-    requisition = db.query(models.ERPPurchaseRequisition).filter_by(id=order.requisition_id).first() if order and order.requisition_id else None
-    po_approval = db.query(models.ERPPurchaseOrderApproval).filter_by(po_id=invoice.po_id, decision="APPROVED").order_by(models.ERPPurchaseOrderApproval.id.desc()).first()
-    separation_ids = {invoice.created_by, match.checked_by}
-    if grn: separation_ids.add(grn.received_by)
-    if order: separation_ids.add(order.employeeid)
-    if requisition: separation_ids.add(requisition.requested_by)
-    if po_approval: separation_ids.add(po_approval.approved_by)
-    if current_user.employeeid in separation_ids:
-        raise HTTPException(403, "Payment approver must differ from requester, PO approver, receiver, invoice recorder, and matcher")
-    paid = db.query(func.coalesce(func.sum(models.ERPSupplierPayment.amount), 0)).filter_by(invoice_id=invoice.id).scalar() or Decimal("0")
-    if paid + payload.amount > invoice.amount:
-        raise HTTPException(409, "Payment exceeds the unpaid invoice balance")
-    payment = models.ERPSupplierPayment(invoice_id=invoice.id, branch_id=invoice.branch_id, amount=payload.amount, payment_method=payload.payment_method, paid_by=current_user.employeeid)
-    db.add(payment); db.flush()
-    journal = models.ERPJournalEntry(reference_type="SUPPLIER_PAYMENT", reference_id=payment.id, branch_id=invoice.branch_id, created_by=current_user.employeeid)
-    db.add(journal); db.flush()
-    cash_code, cash_name = {"cash": ("1000", "Cash on Hand"), "bank": ("1010", "Bank"), "mobile_money": ("1020", "Mobile Money")} [payload.payment_method]
-    db.add_all([models.ERPJournalLine(journal_id=journal.id, account_code="2000", account_name="Accounts Payable", debit=payload.amount, credit=0), models.ERPJournalLine(journal_id=journal.id, account_code=cash_code, account_name=cash_name, debit=0, credit=payload.amount)])
-    invoice.status = "PAID" if paid + payload.amount == invoice.amount else "PARTIALLY_PAID"
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="SUPPLIER_PAYMENT_POSTED", module="finance", entity_type="supplier_payment", entity_id=str(payment.id), branch_id=invoice.branch_id))
-    db.commit()
-    return {"payment_id": payment.id, "invoice_id": invoice.id, "amount": str(payment.amount), "invoice_status": invoice.status}
+    from api_router import create_api_supplier_payment
+    return create_api_supplier_payment(payload, None, current_user, db)
 
 @app.get("/payroll", tags=["operations"])
 @app.get("/api/v1/hr/payroll", tags=["operations"])
@@ -994,16 +857,40 @@ def get_sales(db: Session = Depends(get_db), current_user: models.Employee = Dep
     sales = query.order_by(models.Sale.saledate.desc()).all()
     result = []
     for sale in sales:
-        customer = db.query(models.Customer).filter(models.Customer.customerid == sale.customerid).first() if sale.customerid else None
-        result.append({"saleid": sale.saleid, "saledate": sale.saledate, "totalamount": float(sale.totalamount or 0), "customer_name": customer.name if customer else "Walk-in", "cashier_name": employee_name(db, sale.employeeid), "branch_name": branch_name(db, sale.branchid), "items": [{"item_name": i.product.itemname if i.product else "Unknown product", "quantity": i.quantity, "unitpriceatsale": float(i.unitpriceatsale)} for i in sale.sale_items]})
+        customer = db.get(models.Customer, sale.customerid) if sale.customerid else None
+        result.append({
+            "saleid": sale.saleid,
+            "saledate": sale.saledate,
+            "totalamount": float(sale.totalamount or 0),
+            "payment_method": sale.paymentmethod,
+            "customer_name": customer.name if customer else "Walk-in",
+            "cashier_name": employee_name(db, sale.employeeid),
+            "branch_name": branch_name(db, sale.branchid),
+            "items": [{
+                "itemid": item.itemid,
+                "item_name": item.product.itemname if item.product else "Unknown product",
+                "quantity": float(item.quantity),
+                "unitpriceatsale": float(item.unitpriceatsale),
+                "line_total": float(item.line_total or (item.quantity * item.unitpriceatsale)),
+            } for item in sale.sale_items],
+        })
     return result
 
 @app.get("/cashier-sessions/current", tags=["operations"])
 @app.get("/api/v1/sales/cashier-sessions/current", tags=["operations"])
 def get_current_cashier_session(db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
-    session = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, status="OPEN").order_by(models.ERPCashierSession.opened_at.desc()).first()
-    return {"session_id": session.id, "branch_id": session.branch_id, "opening_float": str(session.opening_float), "status": session.status, "opened_at": session.opened_at} if session else None
+    session = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, status="OPEN").order_by(models.CashierSession.opened_at.desc()).first()
+    if not session:
+        return None
+    return {
+        "session_id": session.session_id,
+        "branch_id": session.branch_id,
+        "warehouse_id": session.warehouse_id,
+        "opening_float": str(session.opening_float),
+        "status": session.status,
+        "opened_at": session.opened_at,
+    }
 
 @app.post("/cashier-sessions/open", tags=["operations"])
 @app.post("/api/v1/sales/cashier-sessions/open", tags=["operations"])
@@ -1011,79 +898,37 @@ def open_cashier_session(payload: schemas.CashierSessionOpen, db: Session = Depe
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
     if not current_user.branchid:
         raise HTTPException(403, "Your account is not assigned to a branch")
-    active = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, status="OPEN").with_for_update().first()
+    active = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, status="OPEN").first()
     if active:
-        return {"session_id": active.id, "status": active.status, "opening_float": str(active.opening_float)}
-    session = models.ERPCashierSession(employeeid=current_user.employeeid, branch_id=current_user.branchid, opening_float=payload.opening_float)
-    db.add(session); db.flush()
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="CASHIER_SESSION_OPENED", module="sales", entity_type="cashier_session", entity_id=str(session.id), branch_id=current_user.branchid))
-    db.commit()
-    return {"session_id": session.id, "status": session.status, "opening_float": str(session.opening_float)}
+        return {"session_id": active.session_id, "status": active.status, "opening_float": str(active.opening_float)}
+    warehouse = db.query(models.Warehouse).filter_by(branch_id=current_user.branchid, is_active=True).order_by(models.Warehouse.warehouse_id).first()
+    if not warehouse:
+        raise HTTPException(409, "Create an active warehouse for your branch before opening a cashier session")
+    session = erp_service.open_cashier_session(
+        employee_id=current_user.employeeid,
+        branch_id=current_user.branchid,
+        warehouse_id=warehouse.warehouse_id,
+        opening_float=payload.opening_float,
+        db=db,
+    )
+    return {"session_id": session.session_id, "status": session.status, "opening_float": str(session.opening_float)}
 
 @app.post("/sales", tags=["operations"])
 @app.post("/api/v1/sales", tags=["operations"])
 def create_sale(payload: schemas.SaleCreate, db: Session = Depends(get_db), current_user: models.Employee = Depends(auth.get_current_user), idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=120)):
     require_role(current_user, models.RoleType.ADMIN, models.RoleType.CASHIER)
-    if not payload.items: raise HTTPException(400, "At least one sale item is required")
+    if not payload.items:
+        raise HTTPException(400, "At least one sale item is required")
     if not current_user.branchid:
         raise HTTPException(403, "Your account is not assigned to a branch")
-    existing = db.query(models.Sale).filter(models.Sale.idempotency_key == idempotency_key).first()
-    if existing:
-        return {"saleid": existing.saleid, "totalamount": str(existing.totalamount), "status": existing.status, "idempotent_replay": True}
-    cashier_session = db.query(models.ERPCashierSession).filter_by(employeeid=current_user.employeeid, branch_id=current_user.branchid, status="OPEN").with_for_update().first()
+    cashier_session = db.query(models.CashierSession).filter_by(employee_id=current_user.employeeid, branch_id=current_user.branchid, status="OPEN").order_by(models.CashierSession.opened_at.desc()).first()
     if not cashier_session:
         raise HTTPException(409, "Open a cashier session before completing a sale")
-    quantities = {}
-    for line in payload.items:
-        quantities[line.itemid] = quantities.get(line.itemid, Decimal("0")) + line.quantity
-    customerid = payload.customerid
-    if not customerid and (payload.customername or payload.customerphone):
-        customer = models.Customer(name=payload.customername, phone=payload.customerphone); db.add(customer); db.flush(); customerid = customer.customerid
-    sale = models.Sale(customerid=customerid, employeeid=current_user.employeeid, branchid=current_user.branchid, totalamount=0, status="COMPLETED", idempotency_key=idempotency_key); db.add(sale); db.flush()
-    total = Decimal("0")
-    cogs = Decimal("0")
-    for itemid, quantity in quantities.items():
-        product = db.query(models.Product).filter(models.Product.itemid == itemid).with_for_update().first()
-        if not product: raise HTTPException(400, f"Product {itemid} was not found")
-        if not product.is_active:
-            raise HTTPException(400, f"Product {product.itemname} is inactive")
-        balances = db.query(models.ERPStockBalance).filter_by(itemid=product.itemid, branch_id=current_user.branchid).filter(models.ERPStockBalance.quantity > 0).order_by(models.ERPStockBalance.id).with_for_update().all()
-        available = sum((balance.quantity for balance in balances), Decimal("0"))
-        if available < quantity:
-            raise HTTPException(409, f"Insufficient stock for {product.itemname}")
-        remaining = quantity
-        for balance in balances:
-            moved = min(balance.quantity, remaining)
-            if moved <= 0:
-                break
-            balance.quantity -= moved
-            db.add(models.ERPInventoryMovement(itemid=product.itemid, branch_id=current_user.branchid, warehouse_id=balance.warehouse_id, movement_type="SALE_OUT", quantity=moved, reference_type="SALE", reference_id=sale.saleid, created_by=current_user.employeeid))
-            remaining -= moved
-        total += product.unitprice * quantity
-        supply = db.query(models.Supply).filter_by(itemid=product.itemid).order_by(models.Supply.costprice).first()
-        if supply:
-            cogs += supply.costprice * quantity
-        db.add(models.SaleItem(saleid=sale.saleid, itemid=product.itemid, quantity=quantity, unitpriceatsale=product.unitprice))
-    total = total.quantize(Decimal("0.01"))
-    cogs = cogs.quantize(Decimal("0.01"))
-    sale.totalamount = total
-    db.add(models.ERPPayment(saleid=sale.saleid, branch_id=current_user.branchid, cashier_session_id=cashier_session.id, method=payload.payment_method.lower(), amount=total))
-    journal = models.ERPJournalEntry(reference_type="SALE", reference_id=sale.saleid, branch_id=current_user.branchid, created_by=current_user.employeeid)
-    db.add(journal); db.flush()
-    payment_account = {"cash": ("1000", "Cash on Hand"), "card": ("1010", "Card Clearing"), "mobile_money": ("1020", "Mobile Money")}[payload.payment_method]
-    db.add_all([
-        models.ERPJournalLine(journal_id=journal.id, account_code=payment_account[0], account_name=payment_account[1], debit=total, credit=0),
-        models.ERPJournalLine(journal_id=journal.id, account_code="4000", account_name="Sales Revenue", debit=0, credit=total),
-    ])
-    if cogs:
-        db.add_all([
-            models.ERPJournalLine(journal_id=journal.id, account_code="5000", account_name="Cost of Goods Sold", debit=cogs, credit=0),
-            models.ERPJournalLine(journal_id=journal.id, account_code="1200", account_name="Inventory Asset", debit=0, credit=cogs),
-        ])
-    db.add(models.LedgerEntry(sourcetype=models.LedgerSourceType.SALE, saleid=sale.saleid, amount=total, recordedby=current_user.employeeid))
-    db.add(models.ERPAuditLog(user_id=current_user.employeeid, action="SALE_COMPLETED", module="sales", entity_type="sale", entity_id=str(sale.saleid), branch_id=current_user.branchid, details_json=f'{{"total":"{total}","cogs":"{cogs}"}}'))
-    db.commit(); db.refresh(sale)
-    return {"saleid": sale.saleid, "totalamount": str(total), "cogs": str(cogs), "gross_profit": str(total - cogs), "status": sale.status}
+    payload.branchid = current_user.branchid
+    payload.warehouseid = cashier_session.warehouse_id
+    payload.cashiersessionid = cashier_session.session_id
+    payload.idempotency_key = payload.idempotency_key or idempotency_key
+    return erp_service.process_pos_sale(payload=payload, current_user=current_user, db=db)
 
 @app.get("/ledger", tags=["operations"])
 @app.get("/api/v1/finance/ledger", tags=["operations"])

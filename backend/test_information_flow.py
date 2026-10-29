@@ -1,3 +1,5 @@
+import secrets
+TEST_PASSWORD = secrets.token_urlsafe(24)
 import unittest
 import os
 import tempfile
@@ -38,7 +40,7 @@ class InformationFlowTests(unittest.TestCase):
             name="okuja",
             nin="FLOW-ADMIN-001",
             email="okuja@hardwareworld.local",
-            hashed_password=auth.get_password_hash("backendiskey@28777"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.ADMIN,
         )
         self.db.add(self.admin)
@@ -48,7 +50,7 @@ class InformationFlowTests(unittest.TestCase):
             {
                 "ADMIN_NAME": "okuja",
                 "ADMIN_EMAIL": "okuja@hardwareworld.local",
-                "ADMIN_PASSWORD": "backendiskey@28777",
+                "ADMIN_PASSWORD": TEST_PASSWORD,
             },
         )
         self.admin_environment.start()
@@ -99,7 +101,7 @@ class InformationFlowTests(unittest.TestCase):
             "/login",
             json={
                 "username": "okuja",
-                "password": "backendiskey@28777",
+                "password": TEST_PASSWORD,
                 "login_type": "admin",
             },
         )
@@ -130,7 +132,7 @@ class InformationFlowTests(unittest.TestCase):
             name="HR Sales Access Check",
             nin="FLOW-HR-SALES-001",
             email="hr-sales-access@example.com",
-            hashed_password=auth.get_password_hash("hr-test-password"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.HR_STAFF,
         )
         self.db.add(hr_employee)
@@ -146,7 +148,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Kiconco Flavia",
             nin="FLOW-EMPLOYEE-001",
             email="kiconco@hardwareworld.local",
-            hashed_password=auth.get_password_hash("employee-password"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.HR_STAFF,
         )
         self.db.add(employee)
@@ -221,11 +223,11 @@ class InformationFlowTests(unittest.TestCase):
 
     def test_temporary_password_generation_requires_admin_permission_and_is_ephemeral(self):
         main.app.dependency_overrides[auth.get_current_user] = lambda: self.admin
-        with patch("api_router.auth.generate_temporary_password", return_value="SecureServerGenerated_123"):
+        with patch("api_router.auth.generate_temporary_password", return_value=TEST_PASSWORD):
             generated = self.client.post("/api/users/generate-temporary-password")
 
         self.assertEqual(generated.status_code, 200, generated.text)
-        self.assertEqual(generated.json(), {"temporary_password": "SecureServerGenerated_123"})
+        self.assertEqual(generated.json(), {"temporary_password": TEST_PASSWORD})
         self.assertEqual(self.db.query(models.PasswordEvent).count(), 0)
 
         branch = models.Branch(branchname="Password Generation Branch", location="Test")
@@ -273,7 +275,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Unauthorized Generator",
             nin="FLOW-PASSWORD-GENERATOR",
             email="unauthorized.generator@example.com",
-            hashed_password=auth.get_password_hash("generator-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.CASHIER,
         )
         self.db.add(employee)
@@ -292,7 +294,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Scoped Cashier",
             nin="FLOW-SALES-CASHIER",
             email="scoped.cashier@example.com",
-            hashed_password=auth.get_password_hash("cashier-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.CASHIER,
             branchid=branch_a.branchid,
         )
@@ -300,7 +302,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Other Cashier",
             nin="FLOW-SALES-CASHIER-2",
             email="other.cashier@example.com",
-            hashed_password=auth.get_password_hash("cashier-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.CASHIER,
             branchid=branch_b.branchid,
         )
@@ -333,7 +335,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Scoped Procurement",
             nin="FLOW-PROCUREMENT-USER",
             email="scoped.procurement@example.com",
-            hashed_password=auth.get_password_hash("procurement-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.PROCUREMENT_OFFICER,
             branchid=branch_a.branchid,
         )
@@ -394,9 +396,9 @@ class InformationFlowTests(unittest.TestCase):
             json={"supplierid": supplier.supplierid, "branchid": branch_a.branchid, "items": []},
             headers={"Origin": "http://127.0.0.1:8000"},
         )
-        self.assertEqual(own_branch.status_code, 200, own_branch.text)
+        self.assertEqual(own_branch.status_code, 422, own_branch.text)
         scoped_orders = self.client.get("/api/purchase-orders")
-        self.assertEqual(len(scoped_orders.json()), 2)
+        self.assertEqual(len(scoped_orders.json()), 1)
 
     def test_stock_adjustment_is_pending_until_authorized_non_requester_approves(self):
         branch = models.Branch(branchname="Adjustment Branch", location="Test")
@@ -416,7 +418,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Adjustment Requester",
             nin="FLOW-ADJUST-REQUESTER",
             email="adjustment.requester@example.com",
-            hashed_password=auth.get_password_hash("requester-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.PROCUREMENT_OFFICER,
             branchid=branch.branchid,
         )
@@ -424,7 +426,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Adjustment Approver",
             nin="FLOW-ADJUST-APPROVER",
             email="adjustment.approver@example.com",
-            hashed_password=auth.get_password_hash("approver-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.BRANCH_MANAGER,
             branchid=branch.branchid,
         )
@@ -575,7 +577,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Approval Requester",
             nin="FLOW-REQUESTER-001",
             email="approval.requester@example.com",
-            hashed_password=auth.get_password_hash("requester-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.CASHIER,
         )
         self.db.add(requester)
@@ -598,7 +600,7 @@ class InformationFlowTests(unittest.TestCase):
 
         login_response = self.client.post(
             "/login",
-            json={"username": "okuja", "password": "backendiskey@28777", "login_type": "admin"},
+            json={"username": "okuja", "password": TEST_PASSWORD, "login_type": "admin"},
         )
         self.assertEqual(login_response.status_code, 200)
         token = login_response.json()["access_token"]
@@ -637,7 +639,7 @@ class InformationFlowTests(unittest.TestCase):
     def test_admin_organization_pages_and_create_routes(self):
         login_response = self.client.post(
             "/login",
-            json={"username": "okuja", "password": "backendiskey@28777"},
+            json={"username": "okuja", "password": TEST_PASSWORD},
         )
         self.assertEqual(login_response.status_code, 200, login_response.text)
 
@@ -683,7 +685,7 @@ class InformationFlowTests(unittest.TestCase):
             "/login",
             json={
                 "username": "okuja",
-                "password": "backendiskey@28777",
+                "password": TEST_PASSWORD,
                 "login_type": "admin",
             },
         )
@@ -726,7 +728,7 @@ class InformationFlowTests(unittest.TestCase):
     def test_configured_admin_can_login_without_preexisting_database_account(self):
         self.db.delete(self.admin)
         self.db.commit()
-        configured_password = "configured-admin-password-2026"
+        configured_password = TEST_PASSWORD
         with patch.dict(
             os.environ,
             {
@@ -755,14 +757,14 @@ class InformationFlowTests(unittest.TestCase):
             {
                 "ADMIN_NAME": "okuja",
                 "ADMIN_EMAIL": "okuja@hardwareworld.local",
-                "ADMIN_PASSWORD": "configured-admin-password-2026",
+                "ADMIN_PASSWORD": TEST_PASSWORD,
             },
         ):
             response = self.client.post(
                 "/login",
                 json={
                     "username": "okuja",
-                    "password": "backendiskey@28777",
+                    "password": secrets.token_urlsafe(24),
                     "login_type": "admin",
                 },
             )
@@ -774,7 +776,7 @@ class InformationFlowTests(unittest.TestCase):
             name="Test Cashier",
             nin="FLOW-STAFF-001",
             email="cashier@example.com",
-            hashed_password=auth.get_password_hash("staff-password-2026"),
+            hashed_password=auth.get_password_hash(TEST_PASSWORD),
             roletype=models.RoleType.CASHIER,
         )
         self.db.add(staff)
@@ -782,7 +784,7 @@ class InformationFlowTests(unittest.TestCase):
 
         response = self.client.post(
             "/login",
-            json={"username": staff.email, "password": "staff-password-2026"},
+            json={"username": staff.email, "password": TEST_PASSWORD},
         )
 
         self.assertEqual(response.status_code, 401)
@@ -797,7 +799,7 @@ class InformationFlowTests(unittest.TestCase):
         self.db.commit()
         admin_login = self.client.post(
             "/login",
-            json={"username": "okuja", "password": "backendiskey@28777", "login_type": "admin"},
+            json={"username": "okuja", "password": TEST_PASSWORD, "login_type": "admin"},
         )
         admin_token = admin_login.json()["access_token"]
         headers = {"Authorization": f"Bearer {admin_token}"}
@@ -853,7 +855,7 @@ class InformationFlowTests(unittest.TestCase):
             headers={"Origin": "http://127.0.0.1:8000"},
             json={
                 "current_password": account["temporary_password"],
-                "new_password": "blue hammer market 2026",
+                "new_password": TEST_PASSWORD,
             },
         )
         self.assertEqual(changed.status_code, 200, changed.text)

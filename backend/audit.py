@@ -1,5 +1,6 @@
 """Small, isolated helpers for writing audit events outside request transactions."""
 
+import os
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -10,8 +11,11 @@ import models
 
 def request_ip(request) -> Optional[str]:
     """Prefer the original client IP when the app is running behind a trusted proxy."""
+    if request is None:
+        return None
     forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
+    trusted = {x.strip() for x in os.getenv("TRUSTED_PROXIES", "").split(",") if x.strip()}
+    if forwarded_for and request.client and request.client.host in trusted:
         return forwarded_for.split(",", 1)[0].strip()[:45]
     return request.client.host[:45] if request.client else None
 

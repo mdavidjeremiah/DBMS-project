@@ -100,9 +100,14 @@ export async function createLedgerEntry(formData) {
 
 export async function createSale(formData) {
   // Handle the complex payload from the POS checkout
+  const session = await apiRequest('/api/cashier-sessions/current');
+  if (!session?.has_active_session) throw new Error('Open a cashier session before completing a sale.');
   const salePayload = {
     branchid: Number(formData.get('branchid')),
     employeeid: Number(formData.get('employeeid')),
+    warehouseid: session.warehouse_id,
+    cashiersessionid: session.session_id,
+    payment_method: String(formData.get('payment_method') || 'cash').toLowerCase(),
     customername: formData.get('customername') || null,
     customerphone: formData.get('customerphone') || null,
     totalamount: 0,
@@ -126,7 +131,7 @@ export async function createSale(formData) {
     }
   }
 
-  await apiRequest('/sales', {
+  await apiRequest('/api/sales', {
     method: 'POST',
     body: JSON.stringify(salePayload)
   });

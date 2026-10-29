@@ -6,6 +6,7 @@
  */
 
 import { apiRequest } from './api.js';
+import { escapeHtml } from './ui.js';
 import { signOut } from './auth.js';
 import { initShell, getPageEl } from './shell.js';
 import { setCurrentUser } from './permissions.js';
@@ -72,6 +73,7 @@ async function boot() {
   });
 
   if (pageName === 'dashboard' || pageName === 'index') await renderDashboard(page);
+  else if (pageName === 'operations') await (await import('./operations.js')).renderOperations(page);
   else if (pageName === 'sales') await renderSales(page, user);
   else if (pageName === 'employees') await renderEmployees(page);
   else if (pageName === 'settings') await renderSettings(page);
@@ -85,6 +87,15 @@ async function boot() {
 }
 
 boot().catch((err) => {
-  const el = document.getElementById('app') || document.body;
-  el.innerHTML = `<div style="padding:2rem;color:red">Fatal error: ${err.message}</div>`;
+  const root = document.getElementById('app') || document.body;
+  const message = document.createElement('div');
+  message.className = 'notice error';
+  message.setAttribute('role', 'alert');
+  message.textContent = `Unable to load this workspace: ${err.message}`;
+  const retry = document.createElement('button');
+  retry.className = 'btn btn-primary';
+  retry.type = 'button';
+  retry.textContent = 'Retry';
+  retry.addEventListener('click', () => window.location.reload());
+  root.replaceChildren(message, retry);
 });
