@@ -30,6 +30,5 @@ out/
 Thumbs.db
 
 *lock.json
-.codex-review/
-backend/uploads/
-frontend/test_out.txt
+# CSV backups contain private business data and password hashes.
+backend/backups/
