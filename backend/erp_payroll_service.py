@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -13,7 +14,13 @@ def execute_payroll_run(
     ip_address: Optional[str] = None
 ) -> models.PayrollRun:
     """Generate monthly payroll run from salary structures."""
-    employees = db.query(models.Employee).filter(models.Employee.is_active == True).all()
+    import re
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(422, "Month must be YYYY-MM")
+    db.query(models.Employee).filter_by(employeeid=prepared_by_user.employeeid).with_for_update().first()
+    if db.query(models.PayrollRun).filter_by(month=month).first():
+        raise HTTPException(409, "Payroll already exists for this month")
+    employees = db.query(models.Employee).filter(models.Employee.is_active == True, models.Employee.branchid == prepared_by_user.branchid).all()
     if not employees:
         raise HTTPException(status_code=400, detail="No active employees found to generate payroll.")
 
@@ -84,9 +91,13 @@ def approve_and_post_payroll(
     ip_address: Optional[str] = None
 ) -> models.PayrollRun:
     """Approve payroll run and post finance accounting entries."""
-    run = db.get(models.PayrollRun, run_id)
+    run = db.query(models.PayrollRun).filter_by(run_id=run_id).with_for_update().first()
     if not run:
         raise HTTPException(status_code=404, detail="Payroll run not found.")
+    if run.prepared_by == approver.employeeid:
+        raise HTTPException(403, "A different person must approve payroll")
+    preparer = db.get(models.Employee, run.prepared_by)
+    require_branch_access(db, approver, preparer.branchid)
     if run.status != "DRAFT":
         raise HTTPException(status_code=400, detail=f"Cannot approve payroll with status {run.status}")
 

@@ -40,7 +40,7 @@ DEFAULT_ROLE_PERMS = {
         "procurement:view", "hr:view", "approvals:approve",
     ],
     "Branch Manager": [
-        "sales:view", "sales:approve", "inventory:view", "inventory:approve_adjust",
+        "sales:view", "sales:approve", "inventory:view", "inventory:manage", "inventory:adjust", "inventory:approve_adjust",
         "procurement:requisition", "procurement:approve_req", "procurement:po_approve",
         "procurement:grn", "finance:view", "hr:view", "payroll:view"
     ],

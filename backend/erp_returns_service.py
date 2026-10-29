@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -13,13 +14,25 @@ def process_sales_return(
     ip_address: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Process a sales return: reverse inventory and post refund journal."""
-    sale = db.get(models.Sale, payload.sale_id)
+    sale = db.query(models.Sale).filter_by(saleid=payload.sale_id).with_for_update().first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found.")
     if sale.status not in ("COMPLETED",):
         raise HTTPException(status_code=400, detail="Only COMPLETED sales can have returns.")
 
+    require_branch_access(db, current_user, sale.branchid)
+    if not auth.has_permission(db, current_user, "sales:approve"):
+        raise HTTPException(403, "A sales manager must process refunds")
+    if db.query(models.SalesReturn).filter_by(sale_id=sale.saleid, status="APPROVED").first():
+        raise HTTPException(409, "This sale already has a refund; further refunds require reconciliation")
+    if len({i.item_id for i in payload.items}) != len(payload.items):
+        raise HTTPException(422, "Duplicate return items")
+    for item in payload.items:
+        original = db.get(models.SaleItem, (sale.saleid, item.item_id))
+        if not original or item.quantity > original.quantity:
+            raise HTTPException(422, "Return quantity exceeds the original sale")
     total_refund = Decimal("0")
+    recovered_cost = Decimal("0")
 
     # Create return header
     sales_return = models.SalesReturn(
@@ -49,10 +62,11 @@ def process_sales_return(
 
         # Return to stock only if condition is GOOD
         if item.condition == "GOOD" and sale.warehouseid:
+            recovered_cost += unit_cost * item.quantity
             bal = db.query(models.InventoryBalance).filter(
                 models.InventoryBalance.item_id == item.item_id,
                 models.InventoryBalance.warehouse_id == sale.warehouseid,
-            ).first()
+            ).with_for_update().first()
             if bal:
                 bal.available_stock += item.quantity
                 bal.last_updated = datetime.utcnow()
@@ -71,13 +85,18 @@ def process_sales_return(
             ))
 
     sales_return.total_refund_amount = total_refund
+    sale.status = "REFUNDED" if total_refund == sale.totalamount else "PARTIALLY_REFUNDED"
+
+    if sale.paymentmethod != "CASH" and payload.refund_method == "CASH":
+        raise HTTPException(422, "Refund must use the original tender")
 
     # Finance journal: Debit Sales Revenue, Credit Cash
     refund_account = {
         "CASH": "1010",
         "MOBILE_MONEY": "1030",
         "STORE_CREDIT": "1040",
-    }.get((payload.refund_method or "CASH").upper(), "1010")
+        "CARD": "1020", "CREDIT": "1040",
+    }.get(sale.paymentmethod, "1010")
 
     journal = models.JournalEntry(
         entry_number=f"JRN-RET-{sales_return.return_id}",
@@ -106,10 +125,16 @@ def process_sales_return(
         description="Refund paid to customer",
     ))
 
+    if recovered_cost:
+        db.add_all([
+            models.JournalEntryLine(entry_id=journal.entry_id,account_code="1050",debit=recovered_cost,credit=Decimal(0),description="Returned stock restored"),
+            models.JournalEntryLine(entry_id=journal.entry_id,account_code="5010",debit=Decimal(0),credit=recovered_cost,description="Returned cost of goods reversed"),
+        ])
+
     # Update cashier session if open
     if sale.cashiersessionid:
         session = db.get(models.CashierSession, sale.cashiersessionid)
-        if session and session.status == "OPEN":
+        if session and session.status == "OPEN" and sale.paymentmethod == "CASH":
             session.cash_refunds = (session.cash_refunds or Decimal("0")) + total_refund
             session.expected_cash = (
                 (session.opening_float or Decimal("0"))

@@ -409,7 +409,12 @@ def get_api_employees(
         or auth.has_permission(db, current_user, "payroll:view")
     )
 
-    employees = db.query(models.Employee).order_by(models.Employee.name).all()
+    if not any(auth.has_permission(db,current_user,p) for p in ("hr:view","hr:manage","payroll:view","admin:users")):
+        raise HTTPException(403,"Employee directory permission required")
+    query=db.query(models.Employee)
+    if not auth.has_permission(db,current_user,"admin:users"):
+        query=query.filter(models.Employee.branchid.in_(employee_branch_ids(db,current_user)))
+    employees=query.order_by(models.Employee.name).all()
     result = []
     for e in employees:
         is_self = e.employeeid == current_user.employeeid
@@ -461,7 +466,7 @@ def get_api_products(
         # Stock calculation
         stock_query = db.query(func.sum(models.InventoryBalance.available_stock)).filter(
             models.InventoryBalance.item_id == p.itemid
-        )
+        ).join(models.Warehouse,models.Warehouse.warehouse_id == models.InventoryBalance.warehouse_id).filter(models.Warehouse.branch_id.in_(employee_branch_ids(db,current_user)))
         if warehouse_id:
             stock_query = stock_query.filter(models.InventoryBalance.warehouse_id == warehouse_id)
         stock_val = stock_query.scalar() or Decimal("0")
@@ -518,7 +523,7 @@ def get_api_inventory(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    q = db.query(models.InventoryBalance)
+    q = db.query(models.InventoryBalance).join(models.Warehouse).filter(models.Warehouse.branch_id.in_(employee_branch_ids(db,current_user)))
     if warehouse_id:
         q = q.filter(models.InventoryBalance.warehouse_id == warehouse_id)
 
@@ -553,7 +558,7 @@ def get_api_stock_movements(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    q = db.query(models.InventoryMovement)
+    q = db.query(models.InventoryMovement).join(models.Warehouse).filter(models.Warehouse.branch_id.in_(employee_branch_ids(db,current_user)))
     if item_id:
         q = q.filter(models.InventoryMovement.item_id == item_id)
     if warehouse_id:
@@ -637,9 +642,13 @@ def create_requisition(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    if not auth.has_permission(db, current_user, "procurement:requisition"):
+        raise HTTPException(403, "Requisition permission required")
+    erp_service.require_branch_access(db, current_user, payload.branch_id or current_user.branchid)
     req = models.PurchaseRequisition(
         requester_id=current_user.employeeid,
-        branch_id=payload.branch_id,
+        branch_id=payload.branch_id or current_user.branchid,
+        reference="REQ-" + secrets.token_hex(10),
         notes=payload.notes,
         status="PENDING",
         created_at=datetime.utcnow(),
@@ -650,9 +659,9 @@ def create_requisition(
     for item in payload.items:
         db.add(models.PurchaseRequisitionItem(
             requisition_id=req.requisition_id,
-            item_id=item.item_id,
+            item_id=item.itemid,
             quantity=item.quantity,
-            estimated_unit_price=item.estimated_unit_price or Decimal("0"),
+            estimated_unit_price=item.estimated_unit_cost or Decimal("0"),
         ))
     db.commit()
     db.refresh(req)
@@ -666,13 +675,8 @@ def approve_requisition(
 ):
     if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.BRANCH_MANAGER):
         raise HTTPException(status_code=403, detail="Manager approval required.")
-    req = db.get(models.PurchaseRequisition, req_id)
-    if not req:
-        raise HTTPException(status_code=404, detail="Requisition not found.")
-    req.status = "APPROVED"
-    req.approved_by = current_user.employeeid
-    db.commit()
-    return {"requisition_id": req.requisition_id, "status": req.status}
+    req = erp_service.approve_or_reject_requisition(req_id, "APPROVE", current_user, None, db)
+    return {"requisition_id": req.id, "status": req.status}
 
 @api_router.get("/purchase-orders", tags=["Procurement"])
 def get_api_purchase_orders(
@@ -714,22 +718,31 @@ def create_api_purchase_order(
         raise HTTPException(status_code=404, detail="Branch not found.")
     erp_service.require_branch_access(db, current_user, branch_id)
 
+    if payload.requisition_id:
+        req = db.query(models.PurchaseRequisition).filter_by(id=payload.requisition_id).with_for_update().first()
+        if not req or req.status != "APPROVED" or req.branch_id != branch_id:
+            raise HTTPException(409, "An approved requisition in this branch is required")
+        if db.query(models.PurchaseOrder).filter_by(requisition_id=req.id).first():
+            raise HTTPException(409, "This requisition already has an order")
+        if not payload.items:
+            payload.items = [schemas.PurchaseOrderItemCreate(item_id=i.itemid,quantity=i.quantity,unit_price=i.estimated_unit_cost) for i in req.items]
     total = Decimal("0")
     if payload.items:
         for itm in payload.items:
+            if not db.get(models.Product, itm.item_id):
+                raise HTTPException(404, "Product not found")
             total += itm.unit_price * itm.quantity
 
-    # Check ProcurementOfficer approval limit
-    officer_sub = db.get(models.ProcurementOfficer, current_user.employeeid)
-    auto_approve = False
-    if officer_sub and officer_sub.approvallimit >= total:
-        auto_approve = True
-
+    if not payload.items:
+        raise HTTPException(422, "At least one purchase order item is required")
+    if not db.get(models.Supplier, payload.supplierid):
+        raise HTTPException(404, "Supplier not found")
     po = models.PurchaseOrder(
         supplierid=payload.supplierid,
+        requisition_id=payload.requisition_id,
         employeeid=current_user.employeeid,
         branch_id=branch_id,
-        status=models.POStatus.APPROVED if auto_approve else models.POStatus.PENDING,
+        status=models.POStatus.PENDING,
         total_amount=total,
         orderdate=datetime.utcnow(),
     )
@@ -764,7 +777,7 @@ def create_api_goods_receipt(
         db=db,
         ip_address=request_ip(request)
     )
-    return {"grn_id": grn.grn_id, "grn_number": grn.grn_number, "status": grn.status}
+    return {"grn_id": grn.id, "grn_number": grn.reference, "status": grn.status}
 
 @api_router.post("/supplier-invoices", tags=["Procurement"])
 def create_api_supplier_invoice(
@@ -781,7 +794,7 @@ def create_api_supplier_invoice(
         db=db,
         ip_address=request_ip(request)
     )
-    return {"invoice_id": invoice.invoice_id, "invoice_number": invoice.invoice_number, "matched_status": invoice.matched_status}
+    return {"invoice_id": invoice.id, "invoice_number": invoice.invoice_number, "matched_status": invoice.status}
 
 @api_router.post("/supplier-payments", tags=["Procurement"])
 def create_api_supplier_payment(
@@ -798,7 +811,7 @@ def create_api_supplier_payment(
         db=db,
         ip_address=request_ip(request)
     )
-    return {"payment_id": payment.payment_id, "amount": float(payment.amount)}
+    return {"payment_id": payment.id, "amount": float(payment.amount)}
 
 # =====================================================================
 # /api/payroll (Enforces Rule 9 Privacy)
@@ -842,8 +855,8 @@ def create_payroll_run(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.HR_STAFF):
-        raise HTTPException(status_code=403, detail="Only HR Staff or Admin can prepare payroll runs.")
+    if not auth.has_permission(db, current_user, "payroll:prepare"):
+        raise HTTPException(status_code=403, detail="Payroll preparation permission required.")
 
     run = erp_service.execute_payroll_run(
         month=payload.month,
@@ -860,7 +873,7 @@ def approve_payroll(
     current_user: models.Employee = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    if not auth.has_any_role(current_user, models.RoleType.ADMIN, models.RoleType.ACCOUNTANT, models.RoleType.BRANCH_MANAGER):
+    if not auth.has_permission(db, current_user, "payroll:approve"):
         raise HTTPException(status_code=403, detail="Finance or Management authorization required.")
 
     run = erp_service.approve_and_post_payroll(
@@ -968,6 +981,14 @@ def record_attendance(
 ):
     if not auth.has_permission(db, current_user, "hr:attendance"):
         raise HTTPException(status_code=403, detail="HR attendance permission required.")
+    employee = db.get(models.Employee, payload.employee_id)
+    if not employee:
+        raise HTTPException(404, "Employee not found")
+    erp_service.require_branch_access(db,current_user,employee.branchid)
+    if payload.status not in {"PRESENT", "ABSENT", "HALF_DAY", "LATE", "ON_LEAVE"}:
+        raise HTTPException(422, "Invalid attendance status")
+    if payload.check_in and payload.check_out and payload.check_out < payload.check_in:
+        raise HTTPException(422, "Check-out cannot precede check-in")
     rec = models.AttendanceRecord(
         employee_id=payload.employee_id,
         date=payload.date,
@@ -1022,6 +1043,12 @@ def create_leave_request(
     can_manage_leave_for_others = auth.has_permission(db, current_user, "hr:manage")
     if payload.employee_id != current_user.employeeid and not can_manage_leave_for_others:
         raise HTTPException(status_code=403, detail="You may only submit leave for yourself.")
+    employee = db.get(models.Employee, payload.employee_id)
+    if not employee:
+        raise HTTPException(404, "Employee not found")
+    erp_service.require_branch_access(db,current_user,employee.branchid)
+    if payload.end_date < payload.start_date:
+        raise HTTPException(422, "Leave end date cannot precede start date")
     lv = models.LeaveRequest(
         employee_id=payload.employee_id if can_manage_leave_for_others else current_user.employeeid,
         leave_type=payload.leave_type,
@@ -1183,3 +1210,6 @@ from api_report_routes import router as report_router
 
 for domain_router in (dashboard_router, approval_router, sales_router, admin_router, payroll_router, report_router):
     api_router.include_router(domain_router)
+
+from api_workflow_routes import router as workflow_router
+api_router.include_router(workflow_router)

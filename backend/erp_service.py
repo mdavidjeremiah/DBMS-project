@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Hardware World ERP Core Service Workflows.
 
 Implements all transaction-linked business workflows:

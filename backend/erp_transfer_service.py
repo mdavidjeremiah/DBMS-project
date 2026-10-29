@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -13,6 +14,15 @@ def execute_stock_transfer(
     ip_address: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Transfer stock from one warehouse to another."""
+    if payload.from_warehouse_id == payload.to_warehouse_id:
+        raise HTTPException(422, "Choose different source and destination warehouses")
+    for warehouse_id in (payload.from_warehouse_id, payload.to_warehouse_id):
+        warehouse = db.get(models.Warehouse, warehouse_id)
+        if not warehouse:
+            raise HTTPException(404, "Warehouse not found")
+        require_warehouse_access(db, current_user, warehouse_id, warehouse.branch_id)
+    if not payload.items:
+        raise HTTPException(422, "At least one transfer item is required")
     transferred = []
     for item in payload.items:
         product = db.get(models.Product, item.item_id)
@@ -22,7 +32,7 @@ def execute_stock_transfer(
         from_bal = db.query(models.InventoryBalance).filter(
             models.InventoryBalance.item_id == item.item_id,
             models.InventoryBalance.warehouse_id == payload.from_warehouse_id,
-        ).first()
+        ).with_for_update().first()
         if not from_bal or from_bal.available_stock < item.quantity:
             raise HTTPException(
                 status_code=400,
@@ -35,7 +45,7 @@ def execute_stock_transfer(
         to_bal = db.query(models.InventoryBalance).filter(
             models.InventoryBalance.item_id == item.item_id,
             models.InventoryBalance.warehouse_id == payload.to_warehouse_id,
-        ).first()
+        ).with_for_update().first()
         if to_bal:
             to_bal.available_stock += item.quantity
             to_bal.last_updated = datetime.utcnow()
@@ -76,7 +86,7 @@ def execute_stock_transfer(
 
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
-        action="STOCK_ADJUSTMENT_APPROVED",
+        action="STOCK_TRANSFERRED",
         module="inventory",
         entity_type="stock_transfer",
         details=f"Transferred {len(transferred)} products from WH#{payload.from_warehouse_id} to WH#{payload.to_warehouse_id}",

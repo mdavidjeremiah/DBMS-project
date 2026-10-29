@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import date, datetime
 from decimal import Decimal
@@ -133,11 +133,9 @@ class RequisitionItemCreate(BaseModel):
     estimated_unit_cost: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
 
 class PurchaseRequisitionCreate(BaseModel):
+    branch_id: Optional[int] = None
     notes: Optional[str] = None
-    items: List[RequisitionItemCreate]
-
-class ApprovalDecision(BaseModel):
-    reason: Optional[str] = None
+    items: List[RequisitionItemCreate] = Field(min_length=1)
 
 class GRNItemCreate(BaseModel):
     po_item_id: int
@@ -178,8 +176,8 @@ class SaleCreate(BaseModel):
     branchid: Optional[int] = None
     warehouseid: Optional[int] = None
     cashiersessionid: Optional[int] = None
-    payment_method: Literal["cash", "card", "mobile_money"] = "cash"
-    items: List[SaleItemCreate]
+    payment_method: Literal["cash", "card", "mobile_money", "credit"] = "cash"
+    items: List[SaleItemCreate] = Field(min_length=1)
 
 class CashierSessionOpen(BaseModel):
     opening_float: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
@@ -239,8 +237,9 @@ class JournalEntryCreate(BaseModel):
 # --- Approvals Schemas ---
 
 class ApprovalDecision(BaseModel):
-    request_id: int
-    action: str # "APPROVE" or "REJECT"
+    request_id: Optional[int] = None
+    reason: Optional[str] = None
+    action: Literal["APPROVE", "REJECT"] = "APPROVE"
     notes: Optional[str] = None
 
 # --- Roles & Permissions Schemas ---
@@ -252,7 +251,7 @@ class RoleCreate(BaseModel):
 class PermissionCreate(BaseModel):
     code: str
     module: str
-    action: str
+    action: Literal["APPROVE", "REJECT"]
     description: Optional[str] = None
 
 class RoleAssignCreate(BaseModel):
@@ -268,7 +267,7 @@ class AuditLogResponse(BaseModel):
     auditlogid: int
     user_id: Optional[int] = None
     username_or_email: Optional[str] = None
-    action: str
+    action: Literal["APPROVE", "REJECT"]
     details: Optional[str] = None
     ip_address: Optional[str] = None
     timestamp: datetime
@@ -295,7 +294,7 @@ class OpeningStockItem(BaseModel):
     unit_cost: Decimal = Field(ge=0)
 
 class OpeningStockCreate(BaseModel):
-    items: List[OpeningStockItem]
+    items: List[OpeningStockItem] = Field(min_length=1)
     notes: Optional[str] = None
 
 # --- Customer Management ---
@@ -344,14 +343,14 @@ class ApprovalRequestResponse(BaseModel):
 
 class RequisitionApproval(BaseModel):
     requisition_id: int
-    action: str  # "APPROVE" or "REJECT"
+    action: Literal["APPROVE", "REJECT"]  # "APPROVE" or "REJECT"
     notes: Optional[str] = None
 
 # --- PO Approval ---
 
 class POApproval(BaseModel):
     po_id: int
-    action: str  # "APPROVE" or "REJECT"
+    action: Literal["APPROVE", "REJECT"]  # "APPROVE" or "REJECT"
     notes: Optional[str] = None
 
 # --- Sales Return (enhanced) ---
@@ -359,13 +358,13 @@ class POApproval(BaseModel):
 class SalesReturnItemCreate(BaseModel):
     item_id: int
     quantity: Decimal = Field(gt=0)
-    condition: Optional[str] = "GOOD"  # GOOD, DAMAGED
+    condition: Literal["GOOD", "DAMAGED"] = "GOOD"  # GOOD, DAMAGED
 
 class SalesReturnFullCreate(BaseModel):
     sale_id: int
     reason: str
-    items: List[SalesReturnItemCreate]
-    refund_method: Optional[str] = "CASH"  # CASH, STORE_CREDIT, ORIGINAL_METHOD
+    items: List[SalesReturnItemCreate] = Field(min_length=1)
+    refund_method: Literal["CASH", "ORIGINAL_METHOD"] = "ORIGINAL_METHOD"  # CASH, STORE_CREDIT, ORIGINAL_METHOD
 
 # --- Stock Transfer ---
 
@@ -377,20 +376,27 @@ class StockTransferCreate(BaseModel):
     from_warehouse_id: int
     to_warehouse_id: int
     notes: Optional[str] = None
-    items: List[StockTransferItemCreate]
+    items: List[StockTransferItemCreate] = Field(min_length=1)
 
 # --- Stock Adjustment ---
 
 class StockAdjustmentCreate(BaseModel):
     warehouse_id: int
     item_id: int
-    variance_quantity: Decimal = Field(ne=0)  # positive = stock gain, negative = shrinkage
+    variance_quantity: Decimal  # positive = stock gain, negative = shrinkage
     reason_code: str = Field(min_length=1, max_length=50)
     notes: Optional[str] = None
 
+    @field_validator("variance_quantity")
+    @classmethod
+    def nonzero(cls, value):
+        if value == 0:
+            raise ValueError("Stock variance cannot be zero")
+        return value
+
 class StockAdjustmentApproval(BaseModel):
     adjustment_id: int
-    action: str
+    action: Literal["APPROVE", "REJECT"]
     notes: Optional[str] = None
 
 # --- User Role Assignment ---
@@ -442,7 +448,7 @@ class PayslipResponse(BaseModel):
 
 class LeaveApproval(BaseModel):
     leave_id: int
-    action: str  # "APPROVE" or "REJECT"
+    action: Literal["APPROVE", "REJECT"]  # "APPROVE" or "REJECT"
     notes: Optional[str] = None
 
 # --- Supplier link (extend) ---
@@ -492,7 +498,8 @@ class PurchaseOrderItemCreate(BaseModel):
 class PurchaseOrderCreate(BaseModel):
     supplierid: int
     branchid: Optional[int] = None
-    items: Optional[List[PurchaseOrderItemCreate]] = []
+    requisition_id: Optional[int] = None
+    items: List[PurchaseOrderItemCreate] = Field(default_factory=list)
 
 # --- Goods Received Note (direct API) ---
 
@@ -511,7 +518,7 @@ class GoodsReceivedNoteCreate(BaseModel):
 # --- Payroll Run ---
 
 class PayrollRunCreate(BaseModel):
-    month: str  # e.g. "2026-09"
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     notes: Optional[str] = None
 
 class PayrollRunApprove(BaseModel):
@@ -542,3 +549,8 @@ class LeaveRequestCreate(BaseModel):
     start_date: date
     end_date: date
     notes: Optional[str] = None
+
+class ProductPricingUpdate(BaseModel):
+    unitprice: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    costprice: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    is_active: bool = True

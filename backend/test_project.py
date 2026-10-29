@@ -1,3 +1,5 @@
+import secrets
+TEST_PASSWORD = secrets.token_urlsafe(24)
 import os
 import unittest
 from unittest.mock import patch
@@ -32,7 +34,7 @@ class ProjectTests(unittest.TestCase):
         self.db.close()
 
     def test_password_hash_round_trip(self):
-        password = "backendiskey@28777"
+        password = TEST_PASSWORD
         hashed_password = auth.get_password_hash(password)
 
         self.assertNotEqual(password, hashed_password)
@@ -46,7 +48,7 @@ class ProjectTests(unittest.TestCase):
     def test_login_request_accepts_admin_login(self):
         request = LoginRequest(
             username="okuja",
-            password="backendiskey@28777",
+            password=TEST_PASSWORD,
             login_type="admin",
         )
 
@@ -75,7 +77,7 @@ class ProjectTests(unittest.TestCase):
             {
                 "ADMIN_NAME": "okuja",
                 "ADMIN_EMAIL": "okuja@hardwareworld.local",
-                "ADMIN_PASSWORD": "backendiskey@28777",
+                "ADMIN_PASSWORD": TEST_PASSWORD,
             },
             clear=False,
         ):
@@ -85,7 +87,7 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(len(employees), 1)
         self.assertEqual(employees[0].name, "okuja")
         self.assertEqual(employees[0].roletype, models.RoleType.ADMIN)
-        self.assertTrue(auth.verify_password("backendiskey@28777", employees[0].hashed_password))
+        self.assertTrue(auth.verify_password(TEST_PASSWORD, employees[0].hashed_password))
         self.assertEqual(self.db.query(models.Branch).count(), 0)
         self.assertEqual(self.db.query(models.Product).count(), 0)
         self.assertEqual(self.db.query(models.Sale).count(), 0)

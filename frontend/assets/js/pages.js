@@ -41,7 +41,7 @@ export async function renderLogin() {
         <label class="field">Department
           <select class="control" name="department">
             <option value="" selected>Select your department</option>
-            ${staffDepts.map((d) => `<option value="${d.departmentname}">${d.departmentname}</option>`).join('')}
+            ${staffDepts.map((d) => `<option value="${escapeHtml(d.departmentname)}">${escapeHtml(d.departmentname)}</option>`).join('')}
           </select>
         </label>
         <label class="field">Password
@@ -249,7 +249,7 @@ export const CRUD_PAGES = {
       description: 'Issue an order from a requisition after a manager approves it.',
       submit: 'Issue order',
       fields: field('supplierid', 'Supplier ID', 'type="number" min="1" required') + field('requisition_id', 'Approved requisition ID', 'type="number" min="1" required'),
-      submitFn: (form) => apiRequest('/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), requisition_id: Number(form.get('requisition_id')) }) }),
+      submitFn: (form) => apiRequest('/api/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierid: Number(form.get('supplierid')), requisition_id: Number(form.get('requisition_id')) }) }),
     },
   },
   payroll: {
@@ -492,7 +492,7 @@ export async function renderEmployees(page) {
             </select>
           </label>
           ${selectField('branchid', 'Branch Assignment', `<option value="">Select branch</option>${branches.data.map((b) => `<option value="${b.branchid}">${b.branchname}</option>`).join('')}`, true)}
-          ${selectField('departmentid', 'Department (ABAC Policy)', `<option value="">Select assigned department</option>${departments.data.map((d) => `<option value="${d.departmentid}">${d.departmentname}</option>`).join('')}`, true)}
+          ${selectField('departmentid', 'Department (ABAC Policy)', `<option value="">Select assigned department</option>${departments.data.map((d) => `<option value="${d.departmentid}">${escapeHtml(d.departmentname)}</option>`).join('')}`, true)}
           ${selectField('supervisorid', 'Supervisor (optional)', `<option value="">No supervisor</option>${employees.data.map((e) => `<option value="${e.employeeid}">${e.name}</option>`).join('')}`)}
           <div id="role-fields" class="employee-role-fields" aria-live="polite">${employeeRoleFields('')}</div>
         </div>
@@ -721,11 +721,12 @@ export async function renderPayroll(page) {
         searchKey: 'month',
       });
     } catch (e) {
-      page.innerHTML = `<div class="card" style="padding:2rem;text-align:center"><p class="muted">🔒 ${e.message}</p></div>`;
+      page.innerHTML = `<div class="card" style="padding:2rem;text-align:center"><p class="muted">🔒 ${escapeHtml(e.message)}</p></div>`;
     }
     return;
   }
   await renderCrud(page, CRUD_PAGES.payroll);
+  page.insertAdjacentHTML('afterbegin', '<a class="btn btn-primary" href="operations.html">Payroll operations</a>');
 }
 
 export async function renderLedger(page) {
@@ -734,6 +735,7 @@ export async function renderLedger(page) {
 
 export async function renderPurchaseOrders(page) {
   await renderCrud(page, CRUD_PAGES['purchase-orders']);
+  page.insertAdjacentHTML('afterbegin', '<a class="btn btn-primary" href="operations.html">Requisitions, receipts and supplier payments</a>');
 }
 
 export async function renderAuditLogs(page) {
@@ -899,18 +901,18 @@ export async function renderSettings(page) {
             <h2>System Status</h2>
             <p class="muted">Security and access overview</p>
           </div>
-          <span class="settings-status-indicator"><span></span>Access controls active</span>
+          <span class="settings-status-indicator"><span></span>Account session loaded</span>
         </div>
         <div class="settings-status-list">
           <div class="settings-status-item">
             <span class="settings-status-icon" aria-hidden="true">✓</span>
-            <div><strong>Authentication</strong><span>Secure sign-in is configured</span></div>
-            <span class="settings-status-value">JWT enabled</span>
+            <div><strong>Authentication</strong><span>Current sign-in uses an authenticated session</span></div>
+            <span class="settings-status-value">Signed in</span>
           </div>
           <div class="settings-status-item">
             <span class="settings-status-icon" aria-hidden="true">✓</span>
-            <div><strong>Authorization</strong><span>Role and permission checks are active</span></div>
-            <span class="settings-status-value">Protected</span>
+            <div><strong>Authorization</strong><span>Available actions follow your assigned permissions</span></div>
+            <span class="settings-status-value">Role based</span>
           </div>
         </div>
         <p class="settings-status-note">FastAPI verifies each signed-in employee's role and permissions before allowing access to protected operations.</p>
@@ -954,7 +956,7 @@ const ORGANIZATION_PAGES = {
       { header: 'Branch', key: 'branch_name' },
     ],
     fields: (branches) => field('departmentname', 'Department name', 'required')
-      + selectField('branchid', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true),
+      + selectField('branchid', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${escapeHtml(branch.branchname)}</option>`).join('')}`, true),
     payload: (form) => ({
       departmentname: form.get('departmentname'),
       branchid: Number(form.get('branchid')),
@@ -972,7 +974,7 @@ const ORGANIZATION_PAGES = {
       { header: 'Status', key: 'is_active', cell: (warehouse) => warehouse.is_active ? 'Active' : 'Inactive' },
     ],
     fields: (branches) => field('warehouse_name', 'Warehouse name', 'required')
-      + selectField('branch_id', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${branch.branchname}</option>`).join('')}`, true)
+      + selectField('branch_id', 'Branch', `<option value="">Select branch</option>${branches.map((branch) => `<option value="${branch.branchid}">${escapeHtml(branch.branchname)}</option>`).join('')}`, true)
       + field('location', 'Location'),
     payload: (form) => ({
       warehouse_name: form.get('warehouse_name'),

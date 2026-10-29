@@ -30,3 +30,6 @@ out/
 Thumbs.db
 
 *lock.json
+.codex-review/
+backend/uploads/
+frontend/test_out.txt

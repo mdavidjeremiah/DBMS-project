@@ -361,10 +361,10 @@ class PurchaseOrder(Base):
 
     supplier = relationship("Supplier")
     creator = relationship("Employee", foreign_keys="[PurchaseOrder.employeeid]")
-    items = relationship("ERPPurchaseOrderItem")
-    grns = relationship("ERPGoodsReceivedNote")
+    items = relationship("PurchaseOrderItem")
+    grns = relationship("GoodsReceivedNote")
 
-class ERPPurchaseRequisition(Base):
+class PurchaseRequisition(Base):
     __tablename__ = "purchase_requisitions"
     id = Column(Integer, primary_key=True)
     reference = Column(String(32), nullable=False, unique=True, index=True)
@@ -373,19 +373,24 @@ class ERPPurchaseRequisition(Base):
     status = Column(String(20), nullable=False, default="PENDING")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    items = relationship("ERPPurchaseRequisitionItem", back_populates="requisition")
+    approved_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=True)
+    requisition_id = synonym("id")
+    requester_id = synonym("requested_by")
+    items = relationship("PurchaseRequisitionItem", back_populates="requisition")
 
-class ERPPurchaseRequisitionItem(Base):
+class PurchaseRequisitionItem(Base):
     __tablename__ = "purchase_requisition_items"
     id = Column(Integer, primary_key=True)
     requisition_id = Column(Integer, ForeignKey("purchase_requisitions.id", ondelete="CASCADE"), nullable=False, index=True)
     itemid = Column(Integer, ForeignKey("product.itemid"), nullable=False)
     quantity = Column(Numeric(15, 3), nullable=False)
     estimated_unit_cost = Column(Numeric(15, 2), nullable=False)
+    item_id = synonym("itemid")
+    estimated_unit_price = synonym("estimated_unit_cost")
     product = relationship("Product")
-    requisition = relationship("ERPPurchaseRequisition", back_populates="items")
+    requisition = relationship("PurchaseRequisition", back_populates="items")
 
-class ERPPurchaseRequisitionApproval(Base):
+class PurchaseRequisitionApproval(Base):
     __tablename__ = "purchase_requisition_approvals"
     id = Column(Integer, primary_key=True)
     requisition_id = Column(Integer, ForeignKey("purchase_requisitions.id"), nullable=False, index=True)
@@ -395,7 +400,7 @@ class ERPPurchaseRequisitionApproval(Base):
     reason = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-class ERPPurchaseOrderItem(Base):
+class PurchaseOrderItem(Base):
     __tablename__ = "purchase_order_items"
     id = Column(Integer, primary_key=True)
     po_id = Column(Integer, ForeignKey("purchase_order.po_id", ondelete="CASCADE"), nullable=False, index=True)
@@ -403,8 +408,10 @@ class ERPPurchaseOrderItem(Base):
     quantity = Column(Numeric(15, 3), nullable=False)
     received_quantity = Column(Numeric(15, 3), nullable=False, default=0)
     unit_cost = Column(Numeric(15, 2), nullable=False)
+    item_id = synonym("itemid")
+    unit_price = synonym("unit_cost")
 
-class ERPPurchaseOrderApproval(Base):
+class PurchaseOrderApproval(Base):
     __tablename__ = "purchase_order_approvals"
     id = Column(Integer, primary_key=True)
     po_id = Column(Integer, ForeignKey("purchase_order.po_id"), nullable=False, index=True)
@@ -414,7 +421,7 @@ class ERPPurchaseOrderApproval(Base):
     reason = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-class ERPGoodsReceivedNote(Base):
+class GoodsReceivedNote(Base):
     __tablename__ = "goods_received_notes"
     id = Column(Integer, primary_key=True)
     reference = Column(String(32), nullable=False, unique=True, index=True)
@@ -425,14 +432,14 @@ class ERPGoodsReceivedNote(Base):
     status = Column(String(20), nullable=False, default="CONFIRMED")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-class ERPGoodsReceivedNoteItem(Base):
+class GoodsReceivedNoteItem(Base):
     __tablename__ = "goods_received_note_items"
     id = Column(Integer, primary_key=True)
     grn_id = Column(Integer, ForeignKey("goods_received_notes.id", ondelete="CASCADE"), nullable=False, index=True)
     po_item_id = Column(Integer, ForeignKey("purchase_order_items.id"), nullable=False)
     quantity = Column(Numeric(15, 3), nullable=False)
 
-class ERPSupplierInvoice(Base):
+class SupplierInvoice(Base):
     __tablename__ = "supplier_invoices"
     id = Column(Integer, primary_key=True)
     invoice_number = Column(String(80), nullable=False, index=True)
@@ -445,7 +452,7 @@ class ERPSupplierInvoice(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     __table_args__ = (UniqueConstraint("invoice_number", "po_id", name="uq_supplier_invoice_po"),)
 
-class ERPInvoiceMatchResult(Base):
+class InvoiceMatchResult(Base):
     __tablename__ = "invoice_match_results"
     id = Column(Integer, primary_key=True)
     invoice_id = Column(Integer, ForeignKey("supplier_invoices.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -458,7 +465,7 @@ class ERPInvoiceMatchResult(Base):
     checked_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-class ERPSupplierPayment(Base):
+class SupplierPayment(Base):
     __tablename__ = "supplier_payments"
     id = Column(Integer, primary_key=True)
     invoice_id = Column(Integer, ForeignKey("supplier_invoices.id"), nullable=False, index=True)
@@ -740,26 +747,9 @@ class CustomerCreditAccount(Base):
 
 # =====================================================================
 # 7e. Model aliases for api_router compatibility
-#     ERPPurchaseRequisition owns the table; these properties let
+#     PurchaseRequisition owns the table; these properties let
 #     api_router.py use the simpler field names.
 # =====================================================================
-
-# Alias: PurchaseRequisition → ERPPurchaseRequisition
-# (ERPPurchaseRequisition.id is accessed as requisition_id)
-ERPPurchaseRequisition.requisition_id = ERPPurchaseRequisition.id
-ERPPurchaseRequisition.requester_id = ERPPurchaseRequisition.requested_by
-ERPPurchaseRequisition.approved_by = Column(Integer, ForeignKey("employee.employeeid"), nullable=True)
-PurchaseRequisition = ERPPurchaseRequisition
-
-# Alias: PurchaseRequisitionItem → ERPPurchaseRequisitionItem
-ERPPurchaseRequisitionItem.item_id = ERPPurchaseRequisitionItem.itemid
-ERPPurchaseRequisitionItem.estimated_unit_price = ERPPurchaseRequisitionItem.estimated_unit_cost
-PurchaseRequisitionItem = ERPPurchaseRequisitionItem
-
-# Alias: PurchaseOrderItem → ERPPurchaseOrderItem
-ERPPurchaseOrderItem.item_id = ERPPurchaseOrderItem.itemid
-ERPPurchaseOrderItem.unit_price = ERPPurchaseOrderItem.unit_cost
-PurchaseOrderItem = ERPPurchaseOrderItem
 
 # =====================================================================
 # 8. Audit Log (Section 5.3)

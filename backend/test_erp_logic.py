@@ -4,6 +4,7 @@ Validates all critical business logic without requiring a live MySQL instance.
 Tests: security, POS pipeline, idempotency, separation of duties, payroll privacy
 """
 import os
+import secrets
 import sys
 from decimal import Decimal
 from fastapi import HTTPException
@@ -16,8 +17,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # Use isolated in-memory configuration; never touch the developer database.
 os.environ["DATABASE_URL"] = "sqlite://"
-os.environ["SECRET_KEY"] = "unit-test-signing-key-with-more-than-32-characters"
-os.environ["SEED_DEFAULT_PASSWORD"] = "Unit-test-seed-password-2026!"
+os.environ["SECRET_KEY"] = secrets.token_urlsafe(48)
+os.environ["SEED_DEFAULT_PASSWORD"] = secrets.token_urlsafe(48)
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

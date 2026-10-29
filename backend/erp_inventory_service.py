@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -166,6 +167,10 @@ def record_opening_stock(
     """Post opening stock balances and matching inventory movements."""
     posted = []
     for item in payload.items:
+        warehouse = db.get(models.Warehouse, item.warehouse_id)
+        if not warehouse:
+            raise HTTPException(404, "Warehouse not found")
+        require_warehouse_access(db, current_user, item.warehouse_id, warehouse.branch_id)
         product = db.get(models.Product, item.item_id)
         if not product:
             raise HTTPException(status_code=404, detail=f"Product ID {item.item_id} not found.")
@@ -202,7 +207,7 @@ def record_opening_stock(
 
     db.add(models.AuditLog(
         user_id=current_user.employeeid,
-        action="STOCK_ADJUSTMENT_APPROVED",
+        action="OPENING_STOCK_POSTED",
         module="inventory",
         entity_type="opening_stock",
         details=f"Opening stock posted for {len(posted)} products",
@@ -225,9 +230,12 @@ def approve_or_reject_requisition(
     ip_address: Optional[str] = None,
 ) -> models.PurchaseRequisition:
     """Branch manager or procurement manager approves/rejects a requisition."""
-    req = db.get(models.PurchaseRequisition, requisition_id)
+    req = db.query(models.PurchaseRequisition).filter_by(id=requisition_id).with_for_update().first()
     if not req:
         raise HTTPException(status_code=404, detail="Purchase requisition not found.")
+    require_branch_access(db, approver, req.branch_id)
+    if action.upper() not in {"APPROVE", "REJECT"}:
+        raise HTTPException(422, "Invalid decision")
     if req.status != "PENDING":
         raise HTTPException(status_code=400, detail=f"Requisition is already {req.status}.")
     # Separation of duties: requester cannot approve their own
@@ -267,9 +275,12 @@ def approve_or_reject_po(
     ip_address: Optional[str] = None,
 ) -> models.PurchaseOrder:
     """Approve or reject a purchase order, respecting ApprovalLimit."""
-    po = db.get(models.PurchaseOrder, po_id)
+    po = db.query(models.PurchaseOrder).filter_by(po_id=po_id).with_for_update().first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found.")
+    require_branch_access(db, approver, po.branch_id)
+    if action.upper() not in {"APPROVE", "REJECT"}:
+        raise HTTPException(422, "Invalid decision")
     if po.status != models.POStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"PO is already {po.status.value}.")
     # Separation of duties: creator cannot approve their own PO

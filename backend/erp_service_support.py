@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Shared imports and access checks for ERP transaction services."""
 
 from datetime import date, datetime

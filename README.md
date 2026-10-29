@@ -99,3 +99,22 @@ Employee profile photos are stored in `backend/uploads/profile-photos`. JPG/JPEG
 Never commit `.env`, passwords, API keys, or production secrets. The local `.env` is ignored by Git. Generate a signing key with `py -c "import secrets; print(secrets.token_urlsafe(48))"` and set it as `SECRET_KEY`; startup rejects missing, short, and placeholder keys. Set `COOKIE_SECURE=true` when served over HTTPS and configure `CORS_ALLOWED_ORIGINS` with only the exact trusted frontend origins. The optional `backend/seed.py` baseline also requires its own unique `SEED_DEFAULT_PASSWORD`; do not reuse the administrator password.
 
 After upgrading, apply the token-revocation schema migration with `cd backend; alembic upgrade head`. Existing sessions are invalidated when a user logs out, has their password reset, or has their account status changed.
+
+
+## Import the 200 item hardware catalogue
+
+Configure DATABASE_URL in the local .env file, then run from backend:
+
+```powershell
+python -m alembic upgrade head
+python import_catalogue.py
+python import_catalogue.py --apply
+```
+
+The first command migrates the database. The next previews additions and rolls back; --apply commits them. The CSV at backend/data/hardware_products.csv contains 200 distinct products in 20 categories. Existing matching names and their prices are preserved. Run a single importer at a time.
+
+New items have zero placeholder prices, no stock, and are inactive. Use Operations > Set product prices to enter verified UGX selling and cost prices and activate each product. Then receive stock or post opening stock. No market prices or quantities are assumed.
+
+Operations connects purchasing, payroll payment, till close/review and stock actions. Create orders from approved requisitions on Purchase Orders; decide approvals on Pending Approvals. Receipt costs must match the approved PO; invoices must match received quantities and prices.
+
+The API integration test covers requisition, separate approval, PO, separate approval, receipt, sale/retry, till closure, invoice and payment with foreign-key enforcement and balanced journals. MySQL and browser acceptance remain deployment checks.

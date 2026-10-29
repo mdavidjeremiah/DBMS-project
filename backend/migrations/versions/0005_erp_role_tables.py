@@ -14,6 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
+    if {"erp_roles", "erp_permissions", "employee_erp_roles", "erp_role_permissions"} <= existing:
+        return
     op.create_table(
         "erp_roles",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),

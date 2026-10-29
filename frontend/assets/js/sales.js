@@ -5,7 +5,7 @@ import { printSaleReceipt, saleReceiptMarkup } from './receipt.js';
 
 export async function renderSales(page, user = window.__HW_USER__) {
   renderLoadingState(page, 'Loading sales and products…');
-  const canSell = ['Cashier', 'Admin'].includes(user?.roletype);
+  const canSell = (user?.permissions || []).includes('sales:pos');
   let cashierSession = null;
   let cashierSessionError = null;
   let warehouses = { data: [], error: null };
@@ -45,7 +45,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <p class="muted">Review a customer receipt before committing the sale to stock and finance records.</p>
       </div>
     </header>
-    <div id="session-notice"></div>
+    <div id="session-notice"></div><a class="btn btn-outline" href="operations.html">Close or review till</a>
     ${canSell && !cashierSession && !cashierSessionError ? `
       <form id="open-cashier-session" class="card form-grid">
         <h2>Open cashier session</h2>

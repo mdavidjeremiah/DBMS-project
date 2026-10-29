@@ -1,4 +1,8 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
+
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from erp_service_support import (
     Any, Decimal, Dict, HTTPException, List, Optional, Session, auth, date,
@@ -35,6 +39,12 @@ def process_pos_sale(
                 status_code=400,
                 detail=f"Invalid quantity {item.quantity} for item {item.itemid}. Quantity must be strictly greater than zero."
             )
+
+    if not payload.idempotency_key:
+        raise HTTPException(400, "An idempotency key is required")
+    payload = payload.model_copy(update={"idempotency_key": f"{current_user.employeeid}:" + payload.idempotency_key})
+    if len({item.itemid for item in payload.items}) != len(payload.items):
+        raise HTTPException(422, "Combine duplicate products into one line")
 
     # 2. Idempotency Check
     if payload.idempotency_key:
@@ -103,10 +113,12 @@ def process_pos_sale(
     total_cogs = Decimal("0")
     prepared_items = []
 
-    for item in payload.items:
+    for item in sorted(payload.items, key=lambda row: row.itemid):
         product = db.get(models.Product, item.itemid)
         if not product:
             raise HTTPException(status_code=400, detail=f"Product with ID {item.itemid} was not found.")
+        if product.unitprice is None or product.unitprice <= 0:
+            raise HTTPException(409, "Set a valid selling price before selling this product")
         if not product.is_active:
             raise HTTPException(status_code=400, detail=f"Product '{product.itemname}' is inactive and cannot be sold.")
 
@@ -188,7 +200,12 @@ def process_pos_sale(
             ))
 
             if balance and warehouse_id:
-                balance.available_stock -= qty
+                changed = db.execute(update(models.InventoryBalance).where(
+                    models.InventoryBalance.balance_id == balance.balance_id,
+                    models.InventoryBalance.available_stock >= qty,
+                ).values(available_stock=models.InventoryBalance.available_stock - qty))
+                if changed.rowcount != 1:
+                    raise HTTPException(409, "Stock changed; refresh and try again")
                 balance.last_updated = datetime.utcnow()
 
                 db.add(models.InventoryMovement(
@@ -316,6 +333,12 @@ def process_pos_sale(
             "branchid": sale.branchid,
             "warehouseid": sale.warehouseid,
         }
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(models.Sale).filter_by(idempotency_key=payload.idempotency_key).first()
+        if existing:
+            return {"saleid": existing.saleid, "totalamount": str(existing.totalamount), "status": existing.status, "idempotent_replay": True}
+        raise HTTPException(409, "Conflicting transaction; refresh and retry")
     except Exception:
         db.rollback()
         raise
@@ -341,7 +364,7 @@ def open_cashier_session(
         require_warehouse_access(db, user, warehouse_id, branch_id)
     active = db.query(models.CashierSession).filter(
         models.CashierSession.employee_id == employee_id,
-        models.CashierSession.status == "OPEN"
+        models.CashierSession.status.in_(("OPEN", "PENDING_REVIEW"))
     ).first()
     if active:
         raise HTTPException(status_code=400, detail="An open cashier session already exists for this staff member.")
@@ -391,7 +414,7 @@ def close_cashier_session(
     ):
         raise HTTPException(status_code=403, detail="You may only close your own cashier session.")
     require_branch_access(db, closed_by_user, session.branch_id)
-    if session.status == "CLOSED":
+    if session.status != "OPEN":
         raise HTTPException(status_code=400, detail="This cashier session is already closed.")
 
     expected = (session.opening_float or Decimal("0")) + (session.cash_sales or Decimal("0")) - (session.cash_refunds or Decimal("0"))

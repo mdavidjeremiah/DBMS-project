@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -15,7 +16,7 @@ def record_customer_credit_payment(
     """Receive customer payment against outstanding credit balance."""
     credit_acct = db.query(models.CustomerCreditAccount).filter(
         models.CustomerCreditAccount.customer_id == payload.customer_id
-    ).first()
+    ).with_for_update().first()
     if not credit_acct:
         raise HTTPException(status_code=404, detail="Customer credit account not found.")
 
@@ -34,8 +35,9 @@ def record_customer_credit_payment(
         "BANK": "1020",
     }.get((payload.payment_method or "CASH").upper(), "1010")
 
+    import uuid
     journal = models.JournalEntry(
-        entry_number=f"JRN-CRPAY-{int(datetime.utcnow().timestamp())}",
+        entry_number=f"JRN-CRPAY-{uuid.uuid4().hex}",
         entry_date=datetime.utcnow(),
         description=f"Customer credit payment — Customer #{payload.customer_id}",
         reference_type="PAYMENT",

@@ -30,7 +30,10 @@ export async function apiRequest(path, init = {}) {
   if (response.status === 401 && !['/login', '/departments/public', '/health'].includes(path)) {
     if (window.location.pathname !== '/login.html') window.location.replace('/login.html');
   }
-  if (!response.ok) throw new Error(body?.detail ?? `API request failed (${response.status})`);
+  if (!response.ok) {
+    const detail = Array.isArray(body?.detail) ? body.detail.map(e => `${e.loc?.slice(1).join('.') || 'Input'}: ${e.msg}`).join('; ') : body?.detail;
+    throw new Error(detail || `API request failed (${response.status})`);
+  }
   if (isSaleSubmission) sessionStorage.removeItem('hw_pending_sale_key');
   return body;
 }

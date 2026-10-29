@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Focused ERP workflow service functions."""
 
 from erp_service_support import (
@@ -20,11 +21,11 @@ def create_goods_received_note(
     ).with_for_update().first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found.")
-    require_branch_access(db, current_user, po.branchid)
+    require_branch_access(db, current_user, po.branch_id)
     if po.status not in (models.POStatus.APPROVED, models.POStatus.PARTIALLY_RECEIVED):
         raise HTTPException(status_code=400, detail=f"Cannot receive goods for PO with status {po.status.value}")
 
-    require_warehouse_access(db, current_user, payload.warehouse_id, po.branchid)
+    require_warehouse_access(db, current_user, payload.warehouse_id, po.branch_id)
     if not payload.items:
         raise HTTPException(status_code=400, detail="At least one received item is required.")
 
@@ -44,10 +45,10 @@ def create_goods_received_note(
     grn = models.GoodsReceivedNote(
         po_id=po.po_id,
         warehouse_id=payload.warehouse_id,
-        grn_number=grn_number,
+        reference=grn_number,
+        branch_id=po.branch_id,
         received_by=current_user.employeeid,
-        received_date=datetime.utcnow(),
-        notes=payload.notes,
+        created_at=datetime.utcnow(),
         status="CONFIRMED",
     )
     db.add(grn)
@@ -65,10 +66,9 @@ def create_goods_received_note(
             raise HTTPException(status_code=409, detail=f"Unit cost does not match the approved PO price for item {item.item_id}.")
 
         db.add(models.GoodsReceivedNoteItem(
-            grn_id=grn.grn_id,
-            item_id=product.itemid,
-            quantity_received=item.quantity_received,
-            unit_cost=unit_cost,
+            grn_id=grn.id,
+            po_item_id=po_item.id,
+            quantity=item.quantity_received,
         ))
         po_item.received_quantity = (po_item.received_quantity or Decimal("0")) + item.quantity_received
 
@@ -76,7 +76,7 @@ def create_goods_received_note(
         bal = db.query(models.InventoryBalance).filter(
             models.InventoryBalance.item_id == product.itemid,
             models.InventoryBalance.warehouse_id == payload.warehouse_id
-        ).first()
+        ).with_for_update().first()
         if not bal:
             bal = models.InventoryBalance(
                 item_id=product.itemid,
@@ -97,7 +97,7 @@ def create_goods_received_note(
             quantity=item.quantity_received,
             unit_cost=unit_cost,
             reference_type="GRN",
-            reference_id=grn.grn_id,
+            reference_id=grn.id,
             performed_by=current_user.employeeid,
             notes=f"Received against PO #{po.po_id}",
             created_at=datetime.utcnow(),
@@ -113,7 +113,7 @@ def create_goods_received_note(
         action="GRN_CONFIRMED",
         module="procurement",
         entity_type="goods_received_note",
-        entity_id=grn.grn_id,
+        entity_id=grn.id,
         reference_number=grn_number,
         warehouse_id=payload.warehouse_id,
         details=f"Goods Received Note #{grn_number} confirmed for PO #{po.po_id}",
@@ -135,39 +135,40 @@ def process_supplier_invoice(
     if not payload.po_id or not payload.grn_id:
         raise HTTPException(status_code=400, detail="A purchase order and goods receipt are required for invoice matching.")
     po = db.get(models.PurchaseOrder, payload.po_id)
-    grn = db.get(models.GoodsReceivedNote, payload.grn_id)
+    grn = db.query(models.GoodsReceivedNote).filter_by(id=payload.grn_id).with_for_update().first()
     if not po or not grn:
         raise HTTPException(status_code=404, detail="Purchase order or goods receipt not found.")
-    require_branch_access(db, current_user, po.branchid)
-    if po.supplierid != payload.supplier_id or grn.po_id != po.po_id or grn.status != "CONFIRMED":
+    require_branch_access(db, current_user, po.branch_id)
+    if po.supplierid != po.supplierid or grn.po_id != po.po_id or grn.status != "CONFIRMED":
         raise HTTPException(status_code=409, detail="Supplier invoice, purchase order, and goods receipt do not match.")
-    if not grn.items:
+    if db.query(models.SupplierInvoice).filter_by(grn_id=grn.id).first():
+        raise HTTPException(409, "This goods receipt already has an invoice")
+    if not db.query(models.GoodsReceivedNoteItem).filter_by(grn_id=grn.id).all():
         raise HTTPException(status_code=409, detail="The goods receipt has no received items to match.")
     po_items = {item.item_id: item for item in po.items}
     expected_amount = Decimal("0")
-    for received in grn.items:
-        po_item = po_items.get(received.item_id)
+    for received in db.query(models.GoodsReceivedNoteItem).filter_by(grn_id=grn.id).all():
+        po_item = po_items.get(db.get(models.PurchaseOrderItem, received.po_item_id).itemid)
         if not po_item:
             raise HTTPException(status_code=409, detail="Goods receipt contains an item absent from the purchase order.")
-        expected_amount += received.quantity_received * po_item.unit_price
-    if payload.invoice_amount.quantize(Decimal("0.01")) != expected_amount.quantize(Decimal("0.01")):
+        expected_amount += received.quantity * po_item.unit_price
+    if payload.amount.quantize(Decimal("0.01")) != expected_amount.quantize(Decimal("0.01")):
         raise HTTPException(status_code=409, detail="Invoice amount does not match the received PO quantities and prices.")
     duplicate = db.query(models.SupplierInvoice).filter(
-        models.SupplierInvoice.supplier_id == payload.supplier_id,
+        models.SupplierInvoice.po_id == po.po_id,
         models.SupplierInvoice.invoice_number == payload.invoice_number,
     ).first()
     if duplicate:
         raise HTTPException(status_code=409, detail="This supplier invoice number has already been recorded.")
 
     invoice = models.SupplierInvoice(
-        supplier_id=payload.supplier_id,
         po_id=payload.po_id,
         grn_id=payload.grn_id,
         invoice_number=payload.invoice_number,
-        invoice_amount=payload.invoice_amount,
-        matched_status="MATCHED",
-        payment_status="UNPAID",
-        due_date=payload.due_date,
+        amount=payload.amount,
+        status="MATCHED",
+        branch_id=po.branch_id,
+        created_by=current_user.employeeid,
         created_at=datetime.utcnow(),
     )
     db.add(invoice)
@@ -175,12 +176,12 @@ def process_supplier_invoice(
 
     # Finance General Journal: Debit Inventory Asset, Credit Accounts Payable
     journal = models.JournalEntry(
-        entry_number=f"JRN-INV-{invoice.invoice_id}",
+        entry_number=f"JRN-INV-{invoice.id}",
         entry_date=datetime.utcnow(),
         description=f"Supplier Invoice #{invoice.invoice_number}",
         reference_type="INVOICE",
-        reference_id=invoice.invoice_id,
-        total_amount=payload.invoice_amount,
+        reference_id=invoice.id,
+        total_amount=payload.amount,
         created_by=current_user.employeeid,
     )
     db.add(journal)
@@ -189,7 +190,7 @@ def process_supplier_invoice(
     db.add(models.JournalEntryLine(
         entry_id=journal.entry_id,
         account_code="1050", # Inventory Asset
-        debit=payload.invoice_amount,
+        debit=payload.amount,
         credit=Decimal("0"),
         description=f"Invoice #{payload.invoice_number} Goods Value",
     ))
@@ -197,8 +198,8 @@ def process_supplier_invoice(
         entry_id=journal.entry_id,
         account_code="2010", # Accounts Payable
         debit=Decimal("0"),
-        credit=payload.invoice_amount,
-        description=f"AP to Supplier #{payload.supplier_id}",
+        credit=payload.amount,
+        description=f"AP to Supplier #{po.supplierid}",
     ))
 
     db.add(models.AuditLog(
@@ -206,9 +207,9 @@ def process_supplier_invoice(
         action="SUPPLIER_INVOICE_MATCHED",
         module="finance",
         entity_type="supplier_invoice",
-        entity_id=invoice.invoice_id,
+        entity_id=invoice.id,
         reference_number=invoice.invoice_number,
-        details=f"Supplier invoice #{invoice.invoice_number} matched and recorded: UGX {payload.invoice_amount:,.2f}",
+        details=f"Supplier invoice #{invoice.invoice_number} matched and recorded: UGX {payload.amount:,.2f}",
         ip_address=ip_address,
     ))
     db.commit()
@@ -225,42 +226,45 @@ def record_supplier_payment(
     if not auth.has_permission(db, current_user, "finance:payment"):
         raise HTTPException(status_code=403, detail="Supplier payment permission required.")
     invoice = db.query(models.SupplierInvoice).filter(
-        models.SupplierInvoice.invoice_id == payload.invoice_id
+        models.SupplierInvoice.id == payload.invoice_id
     ).with_for_update().first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Supplier invoice not found.")
+    if invoice.status not in {"MATCHED", "PARTIAL"}:
+        raise HTTPException(409, "Only matched unpaid invoices can be paid")
     if not invoice.po_id:
         raise HTTPException(status_code=409, detail="Supplier invoice is not linked to a purchase order.")
     po = db.get(models.PurchaseOrder, invoice.po_id)
     if not po:
         raise HTTPException(status_code=409, detail="Supplier invoice purchase order no longer exists.")
-    require_branch_access(db, current_user, po.branchid)
+    require_branch_access(db, current_user, po.branch_id)
 
     paid_to_date = db.query(func.coalesce(func.sum(models.SupplierPayment.amount), 0)).filter(
-        models.SupplierPayment.invoice_id == invoice.invoice_id
+        models.SupplierPayment.invoice_id == invoice.id
     ).scalar() or Decimal("0")
-    outstanding = invoice.invoice_amount - paid_to_date
+    outstanding = invoice.amount - paid_to_date
     if payload.amount <= 0 or payload.amount > outstanding:
         raise HTTPException(status_code=400, detail=f"Payment exceeds the outstanding invoice balance of {outstanding}.")
 
     payment = models.SupplierPayment(
-        invoice_id=invoice.invoice_id,
+        invoice_id=invoice.id,
         amount=payload.amount,
         payment_method=payload.payment_method or "BANK",
         paid_by=current_user.employeeid,
-        paid_at=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        branch_id=po.branch_id,
     )
     db.add(payment)
-    invoice.payment_status = "PAID" if payload.amount == outstanding else "PARTIAL"
+    invoice.status = "PAID" if payload.amount == outstanding else "PARTIAL"
     db.flush()
 
     # Finance Journal: Debit Accounts Payable, Credit Bank Account
     journal = models.JournalEntry(
-        entry_number=f"JRN-SPAY-{payment.payment_id}",
+        entry_number=f"JRN-SPAY-{payment.id}",
         entry_date=datetime.utcnow(),
         description=f"Payment for Supplier Invoice #{invoice.invoice_number}",
         reference_type="PAYMENT",
-        reference_id=payment.payment_id,
+        reference_id=payment.id,
         total_amount=payload.amount,
         created_by=current_user.employeeid,
     )
@@ -276,7 +280,7 @@ def record_supplier_payment(
     ))
     db.add(models.JournalEntryLine(
         entry_id=journal.entry_id,
-        account_code="1020", # Bank Account
+        account_code={"cash":"1010", "bank":"1020", "mobile_money":"1030"}[payload.payment_method], # Tender account
         debit=Decimal("0"),
         credit=payload.amount,
         description="Bank disbursement",
@@ -287,8 +291,8 @@ def record_supplier_payment(
         action="SUPPLIER_PAYMENT_APPROVED",
         module="finance",
         entity_type="supplier_payment",
-        entity_id=payment.payment_id,
-        reference_number=str(payment.payment_id),
+        entity_id=payment.id,
+        reference_number=str(payment.id),
         details=f"Paid supplier invoice #{invoice.invoice_number}: UGX {payload.amount:,.2f}",
         ip_address=ip_address,
     ))

@@ -3062,3 +3062,13 @@ dialog::backdrop {
   font-size: 0.875rem;
   padding-top: 0.2rem;
 }
+
+/* Operational tasks keep prerequisites readable on desktop and mobile. */
+.workflow-actions {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1rem;margin-top:1rem;align-items:start}
+.workflow-task {display:flex;flex-direction:column;gap:.5rem;min-width:0}
+.workflow-task .btn {width:100%;white-space:normal;min-height:44px;text-align:left;justify-content:flex-start}
+.workflow-task p {font-size:.875rem;line-height:1.5;margin:0}
+.workflow-records {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.workflow-records .card {min-width:0}
+#feedback:not(:empty) {padding:1rem;border:1px solid var(--border);border-radius:.75rem;margin:1rem 0;overflow-wrap:anywhere}
+@media(max-width:900px) {.workflow-records {grid-template-columns:1fr}}
