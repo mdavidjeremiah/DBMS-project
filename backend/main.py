@@ -40,6 +40,18 @@ app = FastAPI(
     ],
 )
 
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(ProgrammingError)
+async def database_request_error(request: Request, error):
+    code = getattr(error.orig, "args", [None])[0]
+    text = str(error.orig).lower()
+    if code in (1054, 1146) or "no such column" in text or "no such table" in text:
+        return JSONResponse(status_code=503, content={"detail": "Database schema needs updating. Stop the server, run python -m alembic upgrade head from backend, then restart the server."})
+    return JSONResponse(status_code=503, content={"detail": "Database request could not be completed. Please retry; contact your administrator if the problem continues."})
+
 frontend_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend"))
 swagger_ui_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "swagger-ui")
 

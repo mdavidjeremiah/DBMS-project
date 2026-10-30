@@ -3072,3 +3072,22 @@ dialog::backdrop {
 .workflow-records .card {min-width:0}
 #feedback:not(:empty) {padding:1rem;border:1px solid var(--border);border-radius:.75rem;margin:1rem 0;overflow-wrap:anywhere}
 @media(max-width:900px) {.workflow-records {grid-template-columns:1fr}}
+
+/* Native selects must use the same readable palette as the active theme. */
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+.control { background-color: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: .5rem; padding: .625rem .75rem; min-width: 0; }
+select.control option, select.control optgroup { background-color: var(--card); color: var(--foreground); }
+select.control option:disabled { color: var(--muted-foreground); }
+.pos-grid.hidden { display: none !important; }
+.sale-product-empty { padding: .75rem 0; }
+
+.pos-grid { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.pos-grid > *, .sale-receipt-panel, .sale-receipt { min-width: 0; max-width: 100%; }
+.pos-grid .control { width: 100%; box-sizing: border-box; }
+.sale-product-picker { display: grid; grid-template-columns: minmax(0,1fr) auto; }
+.sale-product-picker .control { width: 100%; }
+@media(max-width:480px) { .sale-product-picker { grid-template-columns: minmax(0,1fr); } }
+.sale-receipt-meta strong, .sale-receipt-item-main { overflow-wrap: anywhere; }
+@media(min-width:960px) { .pos-grid { grid-template-columns: minmax(0,1fr) minmax(0,360px); } }
+@media(max-width:480px) { .sale-receipt { padding: 1rem .75rem; } .sale-receipt-actions { flex-wrap: wrap; } }

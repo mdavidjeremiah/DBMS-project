@@ -10,6 +10,19 @@ from erp_service_support import (
     require_warehouse_access, schemas,
 )
 
+def sale_result(sale, replay=False):
+    """Receipt amounts and lines always come from committed sale snapshots."""
+    return {
+        "saleid":sale.saleid,"totalamount":str(sale.totalamount),
+        "subtotal":str(sale.subtotal),"taxamount":str(sale.taxamount),
+        "payment_method":sale.paymentmethod,"status":sale.status,
+        "idempotent_replay":replay,"items_count":len(sale.sale_items),
+        "saledate":sale.saledate.isoformat() if sale.saledate else None,
+        "cashiersessionid":sale.cashiersessionid,"branchid":sale.branchid,"warehouseid":sale.warehouseid,
+        "items":[{"itemid":line.itemid,"item_name":line.product.itemname if line.product else "Product", "quantity":str(line.quantity),"unitprice":str(line.unitpriceatsale),"line_total":str(line.line_total if line.line_total is not None else line.quantity * line.unitpriceatsale)} for line in sale.sale_items],
+    }
+
+
 def process_pos_sale(
     payload: schemas.SaleCreate,
     current_user: models.Employee,
@@ -52,13 +65,7 @@ def process_pos_sale(
             models.Sale.idempotency_key == payload.idempotency_key
         ).first()
         if existing_sale:
-            return {
-                "saleid": existing_sale.saleid,
-                "totalamount": float(existing_sale.totalamount),
-                "payment_method": existing_sale.paymentmethod,
-                "status": existing_sale.status,
-                "idempotent_replay": True,
-            }
+            return sale_result(existing_sale, replay=True)
 
     # 3. Branch & Warehouse resolution
     branch_id = payload.branchid or current_user.branchid
@@ -83,12 +90,12 @@ def process_pos_sale(
     session_id = payload.cashiersessionid
     active_session = None
     if session_id:
-        active_session = db.get(models.CashierSession, session_id)
+        active_session = db.query(models.CashierSession).filter_by(session_id=session_id).with_for_update().populate_existing().first()
     if not active_session:
         active_session = db.query(models.CashierSession).filter(
             models.CashierSession.employee_id == current_user.employeeid,
             models.CashierSession.status == "OPEN"
-        ).order_by(models.CashierSession.opened_at.desc()).first()
+        ).order_by(models.CashierSession.opened_at.desc()).with_for_update().populate_existing().first()
     if not active_session:
         raise HTTPException(status_code=409, detail="Open a cashier session before completing a sale.")
     if active_session.employee_id != current_user.employeeid:
@@ -101,7 +108,7 @@ def process_pos_sale(
     # 5. Customer & Credit Check
     customer_id = payload.customerid
     if not customer_id and (payload.customername or payload.customerphone):
-        new_customer = models.Customer(name=payload.customername, phone=payload.customerphone)
+        new_customer = models.Customer(name=payload.customername or "Walk-in Customer", phone=payload.customerphone)
         db.add(new_customer)
         db.flush()
         customer_id = new_customer.customerid
@@ -155,7 +162,7 @@ def process_pos_sale(
             raise HTTPException(status_code=400, detail="Credit sales require a registered customer.")
         credit_acct = db.query(models.CustomerCreditAccount).filter(
             models.CustomerCreditAccount.customer_id == customer_id
-        ).first()
+        ).with_for_update().first()
         if not credit_acct:
             raise HTTPException(status_code=400, detail="Customer does not have an approved credit account.")
         if credit_acct.is_blocked:
@@ -322,22 +329,12 @@ def process_pos_sale(
         db.commit()
         db.refresh(sale)
 
-        return {
-            "saleid": sale.saleid,
-            "totalamount": float(sale.totalamount),
-            "payment_method": sale.paymentmethod,
-            "status": sale.status,
-            "items_count": len(prepared_items),
-            "saledate": sale.saledate.isoformat() if sale.saledate else None,
-            "cashiersessionid": sale.cashiersessionid,
-            "branchid": sale.branchid,
-            "warehouseid": sale.warehouseid,
-        }
+        return sale_result(sale, replay=False)
     except IntegrityError:
         db.rollback()
         existing = db.query(models.Sale).filter_by(idempotency_key=payload.idempotency_key).first()
         if existing:
-            return {"saleid": existing.saleid, "totalamount": str(existing.totalamount), "status": existing.status, "idempotent_replay": True}
+            return sale_result(existing, replay=True)
         raise HTTPException(409, "Conflicting transaction; refresh and retry")
     except Exception:
         db.rollback()
@@ -356,7 +353,7 @@ def open_cashier_session(
     ip_address: Optional[str] = None
 ) -> models.CashierSession:
     """Open a cashier shift till session."""
-    user = db.get(models.Employee, employee_id)
+    user = db.query(models.Employee).filter_by(employeeid=employee_id).with_for_update().first()
     if not user or not auth.has_permission(db, user, "sales:pos"):
         raise HTTPException(status_code=403, detail="Cashier session permission required.")
     require_branch_access(db, user, branch_id)
@@ -405,7 +402,7 @@ def close_cashier_session(
     ip_address: Optional[str] = None
 ) -> Dict[str, Any]:
     """Close cashier session and compute cash variance."""
-    session = db.get(models.CashierSession, session_id)
+    session = db.query(models.CashierSession).filter_by(session_id=session_id).with_for_update().populate_existing().first()
     if not session:
         raise HTTPException(status_code=404, detail="Cashier session not found.")
     if (

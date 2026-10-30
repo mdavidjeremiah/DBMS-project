@@ -14,10 +14,13 @@ export async function apiRequest(path, init = {}) {
   if (isSaleSubmission && !headers.has('Idempotency-Key')) {
     const keyName = 'hw_pending_sale_key';
     let key = sessionStorage.getItem(keyName);
+    const pendingBody = sessionStorage.getItem('hw_pending_sale_body');
+    if (key && pendingBody && pendingBody !== init.body) throw new Error('A previous checkout is awaiting confirmation. Restore its original cart and retry before starting a different sale.');
     if (!key) {
       key = crypto.randomUUID();
       sessionStorage.setItem(keyName, key);
     }
+    sessionStorage.setItem('hw_pending_sale_body', init.body);
     headers.set('Idempotency-Key', key);
   }
   const response = await fetch(`${API_URL}${path}`, {
@@ -32,9 +35,12 @@ export async function apiRequest(path, init = {}) {
   }
   if (!response.ok) {
     const detail = Array.isArray(body?.detail) ? body.detail.map(e => `${e.loc?.slice(1).join('.') || 'Input'}: ${e.msg}`).join('; ') : body?.detail;
+    if (isSaleSubmission && [400, 403, 404, 409, 422].includes(response.status)) {
+      sessionStorage.removeItem('hw_pending_sale_key'); sessionStorage.removeItem('hw_pending_sale_body');
+    }
     throw new Error(detail || `API request failed (${response.status})`);
   }
-  if (isSaleSubmission) sessionStorage.removeItem('hw_pending_sale_key');
+  if (isSaleSubmission) { sessionStorage.removeItem('hw_pending_sale_key'); sessionStorage.removeItem('hw_pending_sale_body'); }
   return body;
 }
 

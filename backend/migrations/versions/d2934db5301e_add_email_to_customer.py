@@ -17,7 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('customer', sa.Column('email', sa.String(length=255), nullable=True))
+    columns = {column['name'] for column in sa.inspect(op.get_bind()).get_columns('customer')}
+    if 'email' not in columns:
+        op.add_column('customer', sa.Column('email', sa.String(length=150), nullable=True))
 
 
 def downgrade() -> None:

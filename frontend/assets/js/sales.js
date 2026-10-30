@@ -37,6 +37,8 @@ export async function renderSales(page, user = window.__HW_USER__) {
     data: productsResult.data.map((product) => ({ ...product, stock_qty: Number(product.available_stock || 0) })),
   };
 
+  const availableProducts = products.data.filter(product => product.is_active && Number(product.stock_qty) > 0 && Number(product.unitprice) > 0);
+
   page.innerHTML = `
     <header class="page-head card">
       <div>
@@ -71,10 +73,11 @@ export async function renderSales(page, user = window.__HW_USER__) {
         <div class="sale-product-picker">
           <select class="control" id="product-select" aria-label="Select a product">
             <option value="">Select a product</option>
-            ${products.data.map((product) => `<option value="${product.itemid}" ${!product.is_active || Number(product.stock_qty) <= 0 ? 'disabled' : ''}>${escapeHtml(product.itemname)} · ${money(product.unitprice)} · ${Number(product.stock_qty || 0).toLocaleString()} available</option>`).join('')}
+            ${availableProducts.map((product) => `<option value="${product.itemid}" ${!product.is_active || Number(product.stock_qty) <= 0 ? 'disabled' : ''}>${escapeHtml(product.itemname)} · ${money(product.unitprice)} · ${Number(product.stock_qty || 0).toLocaleString()} available</option>`).join('')}
           </select>
           <button class="btn btn-outline" type="button" id="add-line">Add item</button>
         </div>
+        ${availableProducts.length ? '' : '<p class="muted sale-product-empty">No priced, active products with stock in this till warehouse. Ask inventory staff to receive stock or verify the assigned warehouse.</p>'}
         <div id="lines"><p class="muted center">Add products to begin a sale.</p></div>
       </section>
       <aside class="card form-grid">
@@ -110,6 +113,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
       const finalReceipt = JSON.parse(storedReceipt);
       receiptPanel.innerHTML = saleReceiptMarkup(finalReceipt);
       receiptPanel.classList.remove('hidden');
+      posForm.classList.add('hidden');
       bindFinalReceiptActions(receiptPanel, finalReceipt);
     } catch {
       sessionStorage.removeItem('hw_last_receipt');
@@ -181,11 +185,12 @@ export async function renderSales(page, user = window.__HW_USER__) {
   page.querySelector('#add-line').addEventListener('click', () => {
     const selector = page.querySelector('#product-select');
     const itemid = Number(selector.value);
-    if (!itemid) return;
+    if (!itemid) { showNotice(page.querySelector('#notice'), 'Select an available product first.'); return; }
     const product = products.data.find((item) => item.itemid === itemid);
+    if (!product || !product.is_active || Number(product.stock_qty) <= 0) return;
     const existing = lines.find((line) => line.itemid === itemid);
     if (existing) existing.quantity = Math.min(Number(product.stock_qty), existing.quantity + 1);
-    else lines.push({ itemid, quantity: 1 });
+    else lines.push({ itemid, quantity: Math.min(1, Number(product.stock_qty)) });
     selector.value = '';
     showNotice(page.querySelector('#notice'), null);
     paintLines();
@@ -243,6 +248,14 @@ export async function renderSales(page, user = window.__HW_USER__) {
       branch_phone: user?.branch_phone || '',
       saledate: new Date().toISOString(),
     };
+    const checkoutPayload = {
+      branchid: user.branchid, warehouseid: cashierSession.warehouse_id,
+      cashiersessionid: cashierSession.session_id,
+      customername: form.customername.value.trim() || null,
+      customerphone: form.customerphone.value.trim() || null,
+      payment_method: form.payment_method.value,
+      items: lines.map(({ itemid, quantity }) => ({ itemid, quantity })),
+    };
     receiptPanel.innerHTML = saleReceiptMarkup(receipt, { preview: true });
     receiptPanel.classList.remove('hidden');
     posForm.classList.add('hidden');
@@ -255,26 +268,21 @@ export async function renderSales(page, user = window.__HW_USER__) {
     receiptPanel.querySelector('[data-confirm-sale]').addEventListener('click', async (confirmEvent) => {
       const button = confirmEvent.currentTarget;
       button.disabled = true;
+      receiptPanel.querySelector('[data-edit-sale]').disabled = true;
       button.textContent = 'Completing sale…';
       try {
         const result = await apiRequest('/api/sales', {
           method: 'POST',
-          body: JSON.stringify({
-            branchid: user.branchid,
-            warehouseid: cashierSession.warehouse_id,
-            cashiersessionid: cashierSession.session_id,
-            customername: form.customername.value.trim() || null,
-            customerphone: form.customerphone.value.trim() || null,
-            payment_method: form.payment_method.value,
-            items: lines.map(({ itemid, quantity }) => ({ itemid, quantity })),
-          }),
+          body: JSON.stringify(checkoutPayload),
         });
         const completed = {
           ...receipt,
+          items: result.items || receipt.items,
+          taxamount: Number(result.taxamount ?? receipt.taxamount),
           saleid: result.saleid,
           transaction_id: `SALE-${result.saleid}`,
           totalamount: Number(result.totalamount),
-          subtotal: Number(result.totalamount),
+          subtotal: Number(result.subtotal ?? result.totalamount),
           payment_method: result.payment_method || receipt.payment_method,
           saledate: result.saledate || receipt.saledate,
         };
@@ -283,6 +291,7 @@ export async function renderSales(page, user = window.__HW_USER__) {
       } catch (error) {
         showNotice(page.querySelector('#notice'), error instanceof Error ? error.message : 'Unable to complete sale.');
         button.disabled = false;
+        receiptPanel.querySelector('[data-edit-sale]').disabled = false;
         button.textContent = 'Confirm and complete sale';
       }
     });
